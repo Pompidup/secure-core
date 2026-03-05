@@ -37,8 +37,8 @@ pub fn encrypt_bytes(plaintext: &[u8], dek: &[u8; 32]) -> Result<Vec<u8>, Secure
     encrypt_bytes_with_nonce(plaintext, dek, generate_nonce())
 }
 
-/// Encrypts with an explicit nonce. Used by tests for deterministic output.
-#[cfg(test)]
+/// Encrypts with an explicit nonce. Available under `#[cfg(test)]` or the `_test-vectors` feature.
+#[cfg(any(test, feature = "_test-vectors"))]
 pub fn encrypt_bytes_with_nonce_test(
     plaintext: &[u8],
     dek: &[u8; 32],
