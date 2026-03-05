@@ -366,6 +366,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "libc",
+ "log",
  "rand",
  "serde",
  "serde_json",

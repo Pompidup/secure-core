@@ -21,3 +21,8 @@ tempfile = "3"
 
 [features]
 _test-vectors = []
+log = ["dep:log"]
+
+[dependencies.log]
+version = "0.4"
+optional = true

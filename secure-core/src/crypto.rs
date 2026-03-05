@@ -4,6 +4,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::SecureCoreError;
 use crate::format::EncHeader;
+use crate::validation::validate_dek;
 
 /// GCM auth tag size in bytes.
 const TAG_SIZE: usize = 16;
@@ -12,8 +13,17 @@ const TAG_SIZE: usize = 16;
 const MAX_PLAINTEXT_SIZE: usize = 4 * 1024 * 1024 * 1024;
 
 /// A Data Encryption Key that is zeroized on drop.
+///
+/// `Debug` is intentionally implemented to NOT print the key bytes,
+/// preventing accidental secret leakage in logs or error messages.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Dek(pub [u8; 32]);
+
+impl std::fmt::Debug for Dek {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Dek([REDACTED])")
+    }
+}
 
 impl Dek {
     pub fn new(key: [u8; 32]) -> Self {
@@ -34,6 +44,7 @@ pub fn generate_nonce() -> [u8; 12] {
 
 /// Encrypts plaintext and returns a complete `.enc` V1 blob (header + ciphertext + tag).
 pub fn encrypt_bytes(plaintext: &[u8], dek: &[u8; 32]) -> Result<Vec<u8>, SecureCoreError> {
+    validate_dek(dek)?;
     encrypt_bytes_with_nonce(plaintext, dek, generate_nonce())
 }
 
@@ -87,6 +98,7 @@ fn encrypt_bytes_with_nonce(
 
 /// Decrypts a `.enc` V1 blob and returns the plaintext.
 pub fn decrypt_bytes(blob: &[u8], dek: &[u8; 32]) -> Result<Vec<u8>, SecureCoreError> {
+    validate_dek(dek)?;
     let header = EncHeader::from_bytes(blob)?;
     let header_len = header.header_length as usize;
 
@@ -243,15 +255,24 @@ mod tests {
 
     #[test]
     fn test_dek_zeroize_on_drop() {
-        let key_copy;
-        {
-            let dek = Dek::new([0x42u8; 32]);
-            key_copy = dek.as_bytes().as_ptr();
-            // dek is dropped here
-        }
-        // We cannot reliably read freed memory in safe Rust,
-        // but we verify the type compiles with ZeroizeOnDrop.
-        let _ = key_copy;
+        use zeroize::Zeroize;
+
+        // Verify explicit zeroize clears the key
+        let mut dek = Dek::new([0x42u8; 32]);
+        assert_eq!(dek.0, [0x42u8; 32]);
+        dek.zeroize();
+        assert_eq!(dek.0, [0u8; 32], "DEK must be zeroed after zeroize()");
+    }
+
+    #[test]
+    fn test_dek_debug_redacted() {
+        let dek = Dek::new([0xFFu8; 32]);
+        let debug_output = format!("{dek:?}");
+        assert_eq!(debug_output, "Dek([REDACTED])");
+        assert!(
+            !debug_output.contains("ff") && !debug_output.contains("FF"),
+            "Debug must not contain key bytes"
+        );
     }
 
     // ── Header AAD ──────────────────────────────────────────────────

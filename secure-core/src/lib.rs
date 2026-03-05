@@ -3,5 +3,7 @@ pub mod crypto;
 pub mod error;
 pub mod ffi;
 pub mod format;
+pub mod logging;
 pub mod metadata;
 pub mod streaming;
+pub mod validation;
