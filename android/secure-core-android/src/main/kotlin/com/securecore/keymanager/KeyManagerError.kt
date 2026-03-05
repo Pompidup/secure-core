@@ -17,4 +17,16 @@ sealed class KeyManagerError(override val message: String, override val cause: T
 
     class UnwrapFailed(cause: Exception) :
         KeyManagerError("Failed to unwrap DEK", cause)
+
+    class WrapFormatInvalid(detail: String) :
+        KeyManagerError("WRAP_FORMAT_INVALID: $detail")
+
+    class AlgoUnsupported(algo: String) :
+        KeyManagerError("WRAP_ALGO_UNSUPPORTED: $algo")
+
+    class VersionTooNew(found: String, supported: String) :
+        KeyManagerError("WRAP_VERSION_TOO_NEW: found $found, supported $supported")
+
+    class RecoveryNotConfigured :
+        KeyManagerError("WRAP_RECOVERY_NOT_CONFIGURED: recovery wrap is null")
 }
