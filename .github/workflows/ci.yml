@@ -42,6 +42,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
 
+  cross-check:
+    name: Cross-compile Check (Android)
+    runs-on: ubuntu-latest
+    needs: check
+    strategy:
+      matrix:
+        target:
+          - aarch64-linux-android
+          - armv7-linux-androideabi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target ${{ matrix.target }}
+
   no-unsafe:
     name: Unsafe Audit
     runs-on: ubuntu-latest
