@@ -29,15 +29,32 @@
 | `x86_64-linux-android` | `x86_64` | Emulators only, planned for V2 |
 | `i686-linux-android` | `x86` | Legacy emulators, low priority |
 
-## iOS Cross-Compilation (Planned)
+## iOS Cross-Compilation
 
-| Rust target | Architecture | Notes |
-| ----------- | ------------ | ----- |
-| `aarch64-apple-ios` | ARM64 device | Planned V2 |
-| `aarch64-apple-ios-sim` | ARM64 simulator | Planned V2 |
+| Component | Version | Notes |
+| --------- | ------- | ----- |
+| macOS | Ventura 13+ | Required for iOS builds |
+| Xcode | 15+ | Provides `xcodebuild`, `lipo` |
+
+### Supported Targets — V1
+
+| Rust target | Architecture | Priority |
+| ----------- | ------------ | -------- |
+| `aarch64-apple-ios` | ARM64 device | Primary |
+| `aarch64-apple-ios-sim` | ARM64 simulator (Apple Silicon) | Primary |
+| `x86_64-apple-ios` | x86_64 simulator (Intel) | Secondary |
+
+### Build Command
+
+```bash
+./scripts/build-ios.sh
+```
+
+Output: `dist/ios/secure_core.xcframework`
 
 ## CI Environment
 
-- Ubuntu latest (GitHub Actions)
+- Ubuntu latest (GitHub Actions) — lint, test, Android cross-check
+- macOS latest (GitHub Actions) — iOS xcframework build (tag `v*` only)
 - Cross-compilation check: `cargo check --target <target>` (no NDK required)
 - Full build: requires NDK (local or dedicated CI runner)
