@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.securecore.CryptoEngine
 import com.securecore.DocumentService
 import com.securecore.NativeCryptoEngine
+import com.securecore.SecureCoreLib
 import com.securecore.SecureCoreResult
 import com.securecore.keymanager.KeyManager
 import com.securecore.keymanager.KeystoreKeyManager
@@ -33,6 +34,7 @@ class AntiLeakTest {
 
     @Before
     fun setUp() {
+        SecureCoreLib.load()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         documentsDir = File(context.noBackupFilesDir, "documents")
         previewDir = File(context.cacheDir, "previews")

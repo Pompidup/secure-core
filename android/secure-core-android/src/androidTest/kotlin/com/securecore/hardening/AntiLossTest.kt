@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.securecore.CryptoEngine
 import com.securecore.DocumentService
 import com.securecore.NativeCryptoEngine
+import com.securecore.SecureCoreLib
 import com.securecore.keymanager.KeystoreKeyManager
 import com.securecore.metadata.AppDatabase
 import com.securecore.metadata.MetadataRepository
@@ -31,6 +32,7 @@ class AntiLossTest {
 
     @Before
     fun setUp() {
+        SecureCoreLib.load()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         documentsDir = File(context.noBackupFilesDir, "documents-test-${System.nanoTime()}")
         quarantineDir = File(context.noBackupFilesDir, "quarantine-test-${System.nanoTime()}")
