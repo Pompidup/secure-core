@@ -63,9 +63,7 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           working-directory: android
-          script: |
-            ./gradlew :secure-core-android:connectedAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.package=com.securecore.hardening
+          script: ./gradlew :secure-core-android:connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.securecore.hardening
 
       - name: Upload hardening test results
         if: always()
