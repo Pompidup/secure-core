@@ -1,6 +1,10 @@
 package com.securecore
 
+import android.util.Base64
+import com.securecore.keymanager.DeviceWrap
 import com.securecore.keymanager.KeyManager
+import com.securecore.keymanager.KeyManagerError
+import com.securecore.keymanager.WrapsEnvelope
 import com.securecore.metadata.DocumentDao
 import com.securecore.metadata.DocumentEntity
 import com.securecore.metadata.MetadataRepository
@@ -47,6 +51,7 @@ class DocumentServiceTest {
 
     private class FakeKeyManager : KeyManager {
         private var secretKey: SecretKey? = null
+        private val alias = "fake_test_key"
 
         private fun getOrCreate(): SecretKey {
             secretKey?.let { return it }
@@ -57,20 +62,40 @@ class DocumentServiceTest {
             return key
         }
 
-        override fun wrapDek(dek: ByteArray): ByteArray {
+        override fun wrapDek(dek: ByteArray): String {
+            require(dek.size == 32) { "DEK must be exactly 32 bytes" }
             val key = getOrCreate()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, key)
-            return cipher.iv + cipher.doFinal(dek)
+            val iv = cipher.iv
+            val output = cipher.doFinal(dek)
+            val tagStart = output.size - 16
+            val ciphertext = output.copyOfRange(0, tagStart)
+            val tag = output.copyOfRange(tagStart, output.size)
+
+            return WrapsEnvelope(
+                schemaVersion = WrapsEnvelope.CURRENT_SCHEMA_VERSION,
+                device = DeviceWrap(
+                    algo = WrapsEnvelope.ALGO_AES_256_GCM_KEYSTORE,
+                    keyAlias = alias,
+                    iv = Base64.encodeToString(iv, Base64.NO_WRAP),
+                    tag = Base64.encodeToString(tag, Base64.NO_WRAP),
+                    ciphertext = Base64.encodeToString(ciphertext, Base64.NO_WRAP)
+                )
+            ).toJson()
         }
 
-        override fun unwrapDek(wrappedDek: ByteArray): ByteArray {
-            val key = secretKey ?: throw IllegalStateException("No key")
-            val nonce = wrappedDek.copyOfRange(0, 12)
-            val ct = wrappedDek.copyOfRange(12, wrappedDek.size)
+        override fun unwrapDek(wrappedDekJson: String): ByteArray {
+            val key = secretKey ?: throw KeyManagerError.KeyNotFound()
+            val envelope = WrapsEnvelope.fromJson(wrappedDekJson)
+            val device = envelope.device ?: throw KeyManagerError.WrapFormatInvalid("device is null")
+            val iv = device.ivBytes()
+            val ciphertext = device.ciphertextBytes()
+            val tag = device.tagBytes()
+            val input = ciphertext + tag
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, nonce))
-            return cipher.doFinal(ct)
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+            return cipher.doFinal(input)
         }
 
         override fun isKeyAvailable(): Boolean = secretKey != null
@@ -138,6 +163,11 @@ class DocumentServiceTest {
         assertEquals("application/pdf", meta.mimeType)
         assertEquals(plaintext.size.toLong(), meta.plaintextSize)
 
+        // Verify wrappedDek is valid WrapsEnvelope JSON
+        val envelope = WrapsEnvelope.fromJson(meta.wrappedDek)
+        assertEquals(WrapsEnvelope.CURRENT_SCHEMA_VERSION, envelope.schemaVersion)
+        assertNotNull(envelope.device)
+
         // Verify file stored
         assertTrue(documentStore.documentExists(docId))
 
@@ -165,22 +195,17 @@ class DocumentServiceTest {
 
     @Test
     fun testDekZeroizedAfterImport() = runTest {
-        // We can't directly inspect the DEK inside DocumentService,
-        // but we verify the wrappedDek in metadata is non-zero
-        // (proving the DEK was wrapped before zeroization)
         val input = ByteArrayInputStream("dek test".toByteArray())
         val result = service.importDocument(input, "dek.pdf", "application/pdf")
         assertTrue(result.isSuccess)
 
         val docId = result.getOrThrow()
         val meta = dao.findById(docId)!!
-        // wrappedDek should be 60 bytes (12 nonce + 32 ct + 16 tag)
-        assertEquals(60, meta.wrappedDek.size)
-        // It should not be all zeros
-        assertFalse(
-            "wrappedDek should not be all zeros",
-            meta.wrappedDek.all { it == 0.toByte() }
-        )
+        // wrappedDek should be a non-empty JSON string
+        assertTrue("wrappedDek should not be empty", meta.wrappedDek.isNotEmpty())
+        // Verify it's valid envelope JSON
+        val envelope = WrapsEnvelope.fromJson(meta.wrappedDek)
+        assertNotNull(envelope.device)
     }
 
     @Test

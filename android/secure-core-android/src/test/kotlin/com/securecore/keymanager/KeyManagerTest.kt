@@ -1,5 +1,6 @@
 package com.securecore.keymanager
 
+import android.util.Base64
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -21,9 +22,11 @@ class KeyManagerTest {
     /**
      * In-memory [KeyManager] that mimics KeystoreKeyManager behavior
      * using a standard JCE AES-256-GCM key.
+     * Produces WrapsEnvelope JSON just like the real implementation.
      */
     private class FakeKeyManager : KeyManager {
         private var secretKey: SecretKey? = null
+        private val alias = "fake_test_key"
 
         private fun getOrCreate(): SecretKey {
             secretKey?.let { return it }
@@ -34,23 +37,44 @@ class KeyManagerTest {
             return key
         }
 
-        override fun wrapDek(dek: ByteArray): ByteArray {
+        override fun wrapDek(dek: ByteArray): String {
             require(dek.size == 32) { "DEK must be exactly 32 bytes" }
             val key = getOrCreate()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, key)
-            val nonce = cipher.iv
-            val ct = cipher.doFinal(dek)
-            return nonce + ct
+            val iv = cipher.iv
+            val output = cipher.doFinal(dek)
+
+            val tagStart = output.size - 16
+            val ciphertext = output.copyOfRange(0, tagStart)
+            val tag = output.copyOfRange(tagStart, output.size)
+
+            val envelope = WrapsEnvelope(
+                schemaVersion = WrapsEnvelope.CURRENT_SCHEMA_VERSION,
+                device = DeviceWrap(
+                    algo = WrapsEnvelope.ALGO_AES_256_GCM_KEYSTORE,
+                    keyAlias = alias,
+                    iv = Base64.encodeToString(iv, Base64.NO_WRAP),
+                    tag = Base64.encodeToString(tag, Base64.NO_WRAP),
+                    ciphertext = Base64.encodeToString(ciphertext, Base64.NO_WRAP)
+                )
+            )
+            return envelope.toJson()
         }
 
-        override fun unwrapDek(wrappedDek: ByteArray): ByteArray {
+        override fun unwrapDek(wrappedDekJson: String): ByteArray {
             val key = secretKey ?: throw KeyManagerError.KeyNotFound()
-            val nonce = wrappedDek.copyOfRange(0, 12)
-            val ct = wrappedDek.copyOfRange(12, wrappedDek.size)
+            val envelope = WrapsEnvelope.fromJson(wrappedDekJson)
+            val device = envelope.device ?: throw KeyManagerError.WrapFormatInvalid("device is null")
+
+            val iv = device.ivBytes()
+            val ciphertext = device.ciphertextBytes()
+            val tag = device.tagBytes()
+            val input = ciphertext + tag
+
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, nonce))
-            return cipher.doFinal(ct)
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+            return cipher.doFinal(input)
         }
 
         override fun isKeyAvailable(): Boolean = secretKey != null
@@ -68,17 +92,28 @@ class KeyManagerTest {
     @Test
     fun testWrapUnwrapRoundtrip() {
         val dek = ByteArray(32) { it.toByte() }
-        val wrapped = manager.wrapDek(dek)
-        val unwrapped = manager.unwrapDek(wrapped)
+        val wrappedJson = manager.wrapDek(dek)
+        val unwrapped = manager.unwrapDek(wrappedJson)
         assertArrayEquals(dek, unwrapped)
+    }
+
+    @Test
+    fun testWrapProducesValidEnvelopeJson() {
+        val dek = ByteArray(32) { it.toByte() }
+        val wrappedJson = manager.wrapDek(dek)
+        val envelope = WrapsEnvelope.fromJson(wrappedJson)
+        assertEquals(WrapsEnvelope.CURRENT_SCHEMA_VERSION, envelope.schemaVersion)
+        assertNotNull(envelope.device)
+        assertEquals(WrapsEnvelope.ALGO_AES_256_GCM_KEYSTORE, envelope.device!!.algo)
+        assertNull(envelope.recovery)
     }
 
     @Test
     fun testDekZeroizedAfterUnwrap() {
         val dek = ByteArray(32) { (it + 1).toByte() }
         val original = dek.copyOf()
-        val wrapped = manager.wrapDek(dek)
-        val unwrapped = manager.unwrapDek(wrapped)
+        val wrappedJson = manager.wrapDek(dek)
+        val unwrapped = manager.unwrapDek(wrappedJson)
 
         // Caller is responsible for zeroizing — simulate it
         assertArrayEquals(original, unwrapped)
@@ -93,10 +128,10 @@ class KeyManagerTest {
 
         // wrapDek auto-generates the key
         val dek = ByteArray(32) { 0xAA.toByte() }
-        val wrapped = fresh.wrapDek(dek)
+        val wrappedJson = fresh.wrapDek(dek)
         assertTrue("Key should exist after wrapDek", fresh.isKeyAvailable())
 
-        val unwrapped = fresh.unwrapDek(wrapped)
+        val unwrapped = fresh.unwrapDek(wrappedJson)
         assertArrayEquals(dek, unwrapped)
     }
 
@@ -113,9 +148,9 @@ class KeyManagerTest {
     @Test(expected = KeyManagerError.KeyNotFound::class)
     fun testUnwrapAfterDeleteThrowsKeyNotFound() {
         val dek = ByteArray(32) { it.toByte() }
-        val wrapped = manager.wrapDek(dek)
+        val wrappedJson = manager.wrapDek(dek)
         manager.deleteKey()
-        manager.unwrapDek(wrapped)
+        manager.unwrapDek(wrappedJson)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -124,18 +159,10 @@ class KeyManagerTest {
     }
 
     @Test
-    fun testWrappedDekContainsNonce() {
-        val dek = ByteArray(32) { it.toByte() }
-        val wrapped = manager.wrapDek(dek)
-        // GCM nonce (12) + ciphertext (32) + tag (16) = 60
-        assertEquals("Wrapped DEK should be 60 bytes", 60, wrapped.size)
-    }
-
-    @Test
     fun testTwoWrapsProduceDifferentOutput() {
         val dek = ByteArray(32) { it.toByte() }
         val w1 = manager.wrapDek(dek)
         val w2 = manager.wrapDek(dek)
-        assertFalse("Two wraps should differ (different nonces)", w1.contentEquals(w2))
+        assertNotEquals("Two wraps should differ (different nonces)", w1, w2)
     }
 }

@@ -1,14 +1,14 @@
 package com.securecore.metadata
 
 import com.securecore.SecureCoreResult
-import com.securecore.store.DocumentStore
+import com.securecore.keymanager.DeviceWrap
+import com.securecore.keymanager.WrapsEnvelope
 import com.securecore.store.PrivateDirDocumentStore
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
 
 class MetadataRepositoryTest {
 
@@ -44,6 +44,19 @@ class MetadataRepositoryTest {
         }
     }
 
+    companion object {
+        fun sampleEnvelopeJson(): String = WrapsEnvelope(
+            schemaVersion = WrapsEnvelope.CURRENT_SCHEMA_VERSION,
+            device = DeviceWrap(
+                algo = WrapsEnvelope.ALGO_AES_256_GCM_KEYSTORE,
+                keyAlias = "secure_core_master_key_v1",
+                iv = "oKCgoKCgoKCgoKCg",       // 12 bytes base64
+                tag = "sLCwsLCwsLCwsLCwsLCw",   // 16 bytes base64
+                ciphertext = "AQIDBA=="          // 4 bytes base64
+            )
+        ).toJson()
+    }
+
     private fun makeEntity(docId: String): DocumentEntity = DocumentEntity(
         docId = docId,
         filename = "$docId.pdf",
@@ -52,9 +65,7 @@ class MetadataRepositoryTest {
         plaintextSize = 1024,
         ciphertextSize = 1080,
         contentHash = "abcdef1234567890",
-        wrappedDek = ByteArray(60) { it.toByte() },
-        recoveryWrap = null,
-        wrapAlgorithm = "AES-GCM-KEYSTORE"
+        wrappedDek = sampleEnvelopeJson()
     )
 
     @Before
@@ -75,6 +86,17 @@ class MetadataRepositoryTest {
         assertNotNull(found)
         assertEquals("doc-001", found!!.docId)
         assertEquals("doc-001.pdf", found.filename)
+    }
+
+    @Test
+    fun testWrappedDekIsValidEnvelopeJson() {
+        val entity = makeEntity("doc-envelope")
+        repository.save(entity)
+        val found = (repository.get("doc-envelope") as SecureCoreResult.Success).value!!
+        val envelope = WrapsEnvelope.fromJson(found.wrappedDek)
+        assertEquals(WrapsEnvelope.CURRENT_SCHEMA_VERSION, envelope.schemaVersion)
+        assertNotNull(envelope.device)
+        assertEquals(WrapsEnvelope.ALGO_AES_256_GCM_KEYSTORE, envelope.device!!.algo)
     }
 
     @Test
@@ -142,7 +164,7 @@ class MetadataRepositoryTest {
         assertFalse("File should no longer be in documents", store.documentExists("orphan-file"))
         assertTrue(
             "File should be in quarantine",
-            File(quarantineDir, "orphan-file.enc").exists()
+            java.io.File(quarantineDir, "orphan-file.enc").exists()
         )
     }
 
