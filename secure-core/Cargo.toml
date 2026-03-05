@@ -10,5 +10,8 @@ aes-gcm = "0.10"
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 _test-vectors = []
