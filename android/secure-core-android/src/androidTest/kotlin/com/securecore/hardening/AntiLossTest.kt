@@ -37,7 +37,7 @@ class AntiLossTest {
         previewDir = File(context.cacheDir, "previews-test-${System.nanoTime()}")
 
         store = PrivateDirDocumentStore(documentsDir)
-        val db = AppDatabase.buildInMemory(context)
+        val db = AppDatabase.createInMemory(context)
         repository = MetadataRepository(db.documentDao())
         val keyManager = KeystoreKeyManager()
         val cryptoEngine: CryptoEngine = NativeCryptoEngine

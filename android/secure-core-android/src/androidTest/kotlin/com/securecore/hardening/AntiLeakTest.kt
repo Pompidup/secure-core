@@ -38,7 +38,7 @@ class AntiLeakTest {
         previewDir = File(context.cacheDir, "previews")
 
         val store = PrivateDirDocumentStore(documentsDir)
-        val db = AppDatabase.buildInMemory(context)
+        val db = AppDatabase.createInMemory(context)
         val repository = MetadataRepository(db.documentDao())
         val keyManager = KeystoreKeyManager()
         val cryptoEngine: CryptoEngine = NativeCryptoEngine
