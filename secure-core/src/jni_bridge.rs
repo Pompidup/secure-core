@@ -7,8 +7,11 @@ use jni::objects::{JByteArray, JClass, JObject, JString, JValue};
 use jni::JNIEnv;
 
 use crate::crypto::{decrypt_bytes, encrypt_bytes};
-use crate::ffi::types::{FFI_ERROR_CRYPTO, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM, FFI_ERROR_IO, FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK};
 use crate::error::SecureCoreError;
+use crate::ffi::types::{
+    FFI_ERROR_CRYPTO, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM, FFI_ERROR_IO,
+    FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK,
+};
 
 fn error_to_status(err: &SecureCoreError) -> i32 {
     match err {
@@ -29,13 +32,17 @@ fn make_native_result<'a>(
     data: Option<&[u8]>,
     error_message: Option<&str>,
 ) -> JObject<'a> {
-    let class = env.find_class("com/securecore/SecureCoreLib$NativeResult")
+    let class = env
+        .find_class("com/securecore/SecureCoreLib$NativeResult")
         .expect("NativeResult class not found");
 
     let data_obj: JObject = match data {
         Some(bytes) => {
-            let arr = env.new_byte_array(bytes.len() as i32).expect("new_byte_array");
-            env.set_byte_array_region(&arr, 0, bytemuck_slice(bytes)).expect("set_byte_array_region");
+            let arr = env
+                .new_byte_array(bytes.len() as i32)
+                .expect("new_byte_array");
+            env.set_byte_array_region(&arr, 0, bytemuck_slice(bytes))
+                .expect("set_byte_array_region");
             arr.into()
         }
         None => JObject::null(),
@@ -82,7 +89,14 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptBytes<'a>(
 ) -> JObject<'a> {
     let dek_bytes = match env.convert_byte_array(&dek) {
         Ok(b) => b,
-        Err(_) => return make_native_result(&mut env, FFI_ERROR_INVALID_PARAM, None, Some("failed to read dek")),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read dek"),
+            )
+        }
     };
 
     if dek_bytes.len() != 32 {
@@ -90,13 +104,23 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptBytes<'a>(
             &mut env,
             FFI_ERROR_INVALID_PARAM,
             None,
-            Some(&format!("dek must be exactly 32 bytes, got {}", dek_bytes.len())),
+            Some(&format!(
+                "dek must be exactly 32 bytes, got {}",
+                dek_bytes.len()
+            )),
         );
     }
 
     let plaintext_bytes = match env.convert_byte_array(&plaintext) {
         Ok(b) => b,
-        Err(_) => return make_native_result(&mut env, FFI_ERROR_INVALID_PARAM, None, Some("failed to read plaintext")),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read plaintext"),
+            )
+        }
     };
 
     let mut key = [0u8; 32];
@@ -120,7 +144,14 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
 ) -> JObject<'a> {
     let dek_bytes = match env.convert_byte_array(&dek) {
         Ok(b) => b,
-        Err(_) => return make_native_result(&mut env, FFI_ERROR_INVALID_PARAM, None, Some("failed to read dek")),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read dek"),
+            )
+        }
     };
 
     if dek_bytes.len() != 32 {
@@ -128,13 +159,23 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
             &mut env,
             FFI_ERROR_INVALID_PARAM,
             None,
-            Some(&format!("dek must be exactly 32 bytes, got {}", dek_bytes.len())),
+            Some(&format!(
+                "dek must be exactly 32 bytes, got {}",
+                dek_bytes.len()
+            )),
         );
     }
 
     let blob_bytes = match env.convert_byte_array(&blob) {
         Ok(b) => b,
-        Err(_) => return make_native_result(&mut env, FFI_ERROR_INVALID_PARAM, None, Some("failed to read blob")),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read blob"),
+            )
+        }
     };
 
     let mut key = [0u8; 32];
