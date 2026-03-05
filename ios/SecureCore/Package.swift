@@ -11,9 +11,15 @@ let package = Package(
     products: [
         .library(name: "SecureCore", targets: ["SecureCore"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
+    ],
     targets: [
         .target(
             name: "SecureCore",
+            dependencies: [
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Sources/SecureCore"
         ),
         .testTarget(
