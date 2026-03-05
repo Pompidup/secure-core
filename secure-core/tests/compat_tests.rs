@@ -146,11 +146,7 @@ fn test_compat_decrypt_text_small() {
 
 fn test_compat_header_parse(vector_id: &str) {
     let vectors = load_vectors();
-    let vector = vectors
-        .vectors
-        .iter()
-        .find(|v| v.id == vector_id)
-        .unwrap();
+    let vector = vectors.vectors.iter().find(|v| v.id == vector_id).unwrap();
 
     let enc_path = compat_dir().join(vector_id).join("encrypted.enc");
     let enc_data = std::fs::read(&enc_path).unwrap();
@@ -159,7 +155,11 @@ fn test_compat_header_parse(vector_id: &str) {
     assert_eq!(header.version, vector.header.version);
     assert_eq!(vector.header.algo, "AES-256-GCM");
     assert_eq!(
-        header.nonce.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        header
+            .nonce
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
         vector.header.nonce,
     );
 }
@@ -194,9 +194,7 @@ fn test_compat_deterministic_regeneration() {
     for vector in &vectors.vectors {
         let dek_bytes = deks.get(&vector.dek_ref).unwrap();
         let dek: [u8; 32] = dek_bytes.as_slice().try_into().unwrap();
-        let nonce: [u8; 12] = hex_to_bytes(&vector.header.nonce)
-            .try_into()
-            .unwrap();
+        let nonce: [u8; 12] = hex_to_bytes(&vector.header.nonce).try_into().unwrap();
 
         // Read original plaintext
         let plain_path = compat_dir().join(&vector.id).join("plain.bin");
@@ -246,7 +244,10 @@ fn test_compat_error_truncated() {
 
     let err = decrypt_bytes(&enc_data, &dek).unwrap_err();
     assert!(
-        matches!(err, SecureCoreError::InvalidFormat(_) | SecureCoreError::CryptoError(_)),
+        matches!(
+            err,
+            SecureCoreError::InvalidFormat(_) | SecureCoreError::CryptoError(_)
+        ),
         "expected InvalidFormat or CryptoError for truncated data, got: {err:?}"
     );
 }
@@ -262,7 +263,13 @@ fn test_compat_error_future_version() {
 
     let err = decrypt_bytes(&enc_data, &dek).unwrap_err();
     assert!(
-        matches!(err, SecureCoreError::UnsupportedVersion { found: 99, max_supported: 1 }),
+        matches!(
+            err,
+            SecureCoreError::UnsupportedVersion {
+                found: 99,
+                max_supported: 1
+            }
+        ),
         "expected UnsupportedVersion(99, 1) for future version, got: {err:?}"
     );
 }

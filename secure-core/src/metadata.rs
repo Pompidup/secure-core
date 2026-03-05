@@ -137,9 +137,9 @@ impl WrapsEnvelope {
         }
 
         // Validate base64 fields are decodable and correct sizes
-        let iv_bytes = BASE64
-            .decode(&device.iv)
-            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.iv: invalid base64: {e}")))?;
+        let iv_bytes = BASE64.decode(&device.iv).map_err(|e| {
+            SecureCoreError::InvalidParameter(format!("device.iv: invalid base64: {e}"))
+        })?;
         if iv_bytes.len() != 12 {
             return Err(SecureCoreError::InvalidParameter(format!(
                 "device.iv must be 12 bytes, got {}",
@@ -147,9 +147,9 @@ impl WrapsEnvelope {
             )));
         }
 
-        let tag_bytes = BASE64
-            .decode(&device.tag)
-            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.tag: invalid base64: {e}")))?;
+        let tag_bytes = BASE64.decode(&device.tag).map_err(|e| {
+            SecureCoreError::InvalidParameter(format!("device.tag: invalid base64: {e}"))
+        })?;
         if tag_bytes.len() != 16 {
             return Err(SecureCoreError::InvalidParameter(format!(
                 "device.tag must be 16 bytes, got {}",

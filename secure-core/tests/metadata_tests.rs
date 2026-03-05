@@ -1,7 +1,5 @@
 use secure_core::error::SecureCoreError;
-use secure_core::metadata::{
-    DocumentMetadata, WrapsEnvelope, WRAPS_SCHEMA_VERSION,
-};
+use secure_core::metadata::{DocumentMetadata, WrapsEnvelope, WRAPS_SCHEMA_VERSION};
 
 fn sample_envelope() -> WrapsEnvelope {
     WrapsEnvelope::new_device(
