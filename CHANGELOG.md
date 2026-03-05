@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-03-05
+
+### Features
+
+- Import de documents (images JPEG/PNG/WebP, PDF, texte brut)
+- Chiffrement local AES-256-GCM via secure-core Rust v0.1.0
+- Cles de chiffrement par document (DEK), wrappees par le Keystore Android (KEK)
+- Previsualisation securisee avec purge automatique (RAM pour images/texte, fichier temporaire pour PDF)
+- Verrouillage biometrique avec session de 5 minutes (fallback PIN/pattern)
+- Module React Native avec bridge TypeScript type
+- Validation a l'import : types MIME V1, taille max 50 Mo
+- Reconciliation au demarrage (orphelins .enc et metadata)
+
+### Security
+
+- Aucune donnee en clair sur disque a aucun moment du cycle de vie
+- Aucune donnee envoyee sur des serveurs externes (zero reseau)
+- Backup Android desactive intentionnellement (allowBackup=false + XML rules + noBackupFilesDir)
+- Detection de falsification : toute modification du fichier chiffre provoque une erreur crypto
+- Purge automatique des previews au background, au release et au demarrage
+- Suite de tests de hardening (anti-leak, anti-loss, tamper, performance)
+
+### Known Limitations (V1)
+
+- Android uniquement (iOS prevu V2)
+- Recuperation apres reinstallation non disponible : les cles sont liees a l'installation (prevu V2)
+- Partage de documents non disponible (prevu V2)
+- Pas de streaming : les fichiers sont charges entierement en memoire (limite a 50 Mo)
+- Authentification au niveau applicatif, pas au niveau Keystore (Keystore-bound auth prevu V2)
+
 ## [0.1.0] - 2026-03-05
 
 ### Added
