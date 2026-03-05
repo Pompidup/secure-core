@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "secure-core-android-root"
 include(":secure-core-android")
+include(":app")
