@@ -1,6 +1,6 @@
 # Android Storage Policy
 
-## Why `noBackupFilesDir`
+## Storage Location
 
 All encrypted document blobs are stored under `context.noBackupFilesDir`
 rather than `filesDir` or external storage. This directory is explicitly
@@ -66,3 +66,55 @@ class SecureCoreInitializer : Initializer<Unit> {
     }
 }
 ```
+
+## Backup Policy
+
+### V1 Promise
+
+**No document ever leaves the device via Android backup mechanisms.**
+
+### Configuration
+
+#### `AndroidManifest.xml`
+
+```xml
+<application
+    android:allowBackup="false"
+    android:fullBackupContent="@xml/backup_rules"
+    android:dataExtractionRules="@xml/data_extraction_rules" />
+```
+
+- `allowBackup="false"` — Disables Auto Backup entirely as the primary control
+- `fullBackupContent` — Defense-in-depth exclusion rules for Android < 12
+- `dataExtractionRules` — Defense-in-depth exclusion rules for Android 12+
+
+#### `backup_rules.xml` (Android < 12)
+
+Excludes:
+- `documents/` directory (encrypted blobs)
+- `secure_core.db` (metadata database)
+- All SharedPreferences
+
+#### `data_extraction_rules.xml` (Android 12+)
+
+Excludes from both **cloud backup** and **device-to-device transfer**:
+- `documents/` directory
+- All databases
+
+### Defense in Depth
+
+Even if `allowBackup` were somehow overridden by the consuming app:
+1. Documents are in `noBackupFilesDir` (never backed up regardless of XML rules)
+2. XML rules explicitly exclude the documents directory and database
+3. Even if backed up, the ciphertext is useless without the Keystore KEK (which is non-exportable and device-bound)
+
+### Known Limitations
+
+- A rooted device with manual backup tools (e.g., `adb backup` with root) can copy any file. This is out of scope for V1.
+- `allowBackup="false"` is set on the library manifest. If the consuming app overrides it to `true`, the XML exclusion rules and `noBackupFilesDir` still protect the data.
+
+### Verified By
+
+- `BackupPolicyTest.testDocumentsDir_isInNoBackupFilesDir`
+- `BackupPolicyTest.testAllowBackup_isFalse`
+- `BackupPolicyTest.testEncFilesNotInBackupableDir`
