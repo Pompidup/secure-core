@@ -59,6 +59,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --target ${{ matrix.target }}
 
+  ffi-harness:
+    name: FFI Harness
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: chmod +x scripts/run-ffi-harness.sh && ./scripts/run-ffi-harness.sh
+
   no-unsafe:
     name: Unsafe Audit
     runs-on: ubuntu-latest

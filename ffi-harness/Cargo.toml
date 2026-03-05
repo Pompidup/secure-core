@@ -1,0 +1,13 @@
+[package]
+name = "ffi-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "ffi-harness"
+path = "src/main.rs"
+
+[dependencies]
+secure-core = { path = "../secure-core" }
+rand = "0.8"
