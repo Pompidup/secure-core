@@ -44,7 +44,7 @@ class DocumentService(
                 is SecureCoreResult.Error -> return@withContext Result.failure(result.error)
             }
 
-            val wrappedDek = keyManager.wrapDek(dek)
+            val wrappedDekJson = keyManager.wrapDek(dek)
             dek.fill(0)
 
             documentStore.writeDocument(docId, blob)
@@ -57,9 +57,7 @@ class DocumentService(
                 plaintextSize = plaintextSize,
                 ciphertextSize = blob.size.toLong(),
                 contentHash = null,
-                wrappedDek = wrappedDek,
-                recoveryWrap = null,
-                wrapAlgorithm = "AES-GCM-KEYSTORE"
+                wrappedDek = wrappedDekJson
             )
 
             when (val saveResult = metadataRepository.save(entity)) {
@@ -79,7 +77,6 @@ class DocumentService(
     }
 
     suspend fun decryptDocument(docId: String): Result<ByteArray> = withContext(Dispatchers.IO) {
-        val dek = ByteArray(0) // placeholder
         try {
             val entity = when (val result = metadataRepository.get(docId)) {
                 is SecureCoreResult.Success -> result.value
