@@ -10,6 +10,8 @@ import com.facebook.react.bridge.ReactMethod
 import com.securecore.SecureCoreError
 import com.securecore.auth.AuthError
 import com.securecore.auth.AuthGate
+import com.securecore.`import`.ImportError
+import com.securecore.`import`.ImportService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +31,10 @@ class SecureCoreModule(
         get() = SecureCoreServiceLocator.authGate
             ?: throw IllegalStateException("AuthGate not initialized")
 
+    private val importService: ImportService
+        get() = SecureCoreServiceLocator.importService
+            ?: throw IllegalStateException("ImportService not initialized")
+
     private val tempDir: File
         get() = File(reactApplicationContext.cacheDir, "previews")
 
@@ -37,25 +43,16 @@ class SecureCoreModule(
         scope.launch {
             try {
                 val uri = Uri.parse(uriString)
-                val contentResolver = reactApplicationContext.contentResolver
-                val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
-                val filename = uri.lastPathSegment ?: "unknown"
-
-                val inputStream = contentResolver.openInputStream(uri)
-                    ?: return@launch promise.reject("IO_ERROR", "Cannot open URI")
-
-                inputStream.use { stream ->
-                    authGate.importDocument(stream, filename, mimeType)
-                        .fold(
-                            onSuccess = { docId ->
-                                val result = Arguments.createMap().apply {
-                                    putString("docId", docId)
-                                }
-                                promise.resolve(result)
-                            },
-                            onFailure = { rejectWithError(promise, it) }
-                        )
-                }
+                importService.importFromUri(uri)
+                    .fold(
+                        onSuccess = { docId ->
+                            val result = Arguments.createMap().apply {
+                                putString("docId", docId)
+                            }
+                            promise.resolve(result)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
             } catch (e: Exception) {
                 rejectWithError(promise, e)
             }
@@ -167,6 +164,9 @@ class SecureCoreModule(
     companion object {
         internal fun rejectWithError(promise: Promise, error: Throwable) {
             val (code, message) = when (error) {
+                is ImportError.UnsupportedMimeType -> "UNSUPPORTED_TYPE" to "Unsupported file type: ${error.found}"
+                is ImportError.FileTooLarge -> "FILE_TOO_LARGE" to "File exceeds size limit"
+                is ImportError.UriNotAccessible -> "URI_ERROR" to "Cannot access file"
                 is AuthError.AuthRequired -> "AUTH_REQUIRED" to "Authentication required"
                 is AuthError.UserCancelled -> "AUTH_REQUIRED" to "Authentication cancelled"
                 is AuthError.LockedOut -> "AUTH_REQUIRED" to "Too many attempts, try again later"
