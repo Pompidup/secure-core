@@ -107,6 +107,11 @@ impl EncHeader {
 
         // Header length
         let header_length = u32::from_le_bytes([data[21], data[22], data[23], data[24]]);
+        if header_length != HEADER_SIZE_V1 {
+            return Err(SecureCoreError::InvalidFormat(format!(
+                "header_length mismatch: expected {HEADER_SIZE_V1}, got {header_length}"
+            )));
+        }
 
         Ok(Self {
             version,
@@ -172,9 +177,7 @@ mod tests {
         assert!(matches!(err, SecureCoreError::InvalidFormat(_)));
     }
 
-    // TODO: sera vert après PROMPT 06 — header_length validation not yet implemented
     #[test]
-    #[ignore]
     fn test_header_length_mismatch() {
         let mut bytes = EncHeader::new_v1([0u8; NONCE_SIZE]).to_bytes();
         // Set header_length to 99 instead of 25 — inconsistent with V1

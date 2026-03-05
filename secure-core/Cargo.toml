@@ -6,3 +6,6 @@ description = "Core cryptographic primitives and secure building blocks"
 license = "Apache-2.0"
 
 [dependencies]
+aes-gcm = "0.10"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
