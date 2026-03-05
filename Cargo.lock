@@ -365,6 +365,7 @@ name = "secure-core"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "libc",
  "rand",
  "serde",
  "serde_json",
