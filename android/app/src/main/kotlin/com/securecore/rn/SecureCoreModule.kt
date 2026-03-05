@@ -7,8 +7,9 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.securecore.DocumentService
 import com.securecore.SecureCoreError
+import com.securecore.auth.AuthError
+import com.securecore.auth.AuthGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,9 +25,9 @@ class SecureCoreModule(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val documentService: DocumentService
-        get() = SecureCoreServiceLocator.documentService
-            ?: throw IllegalStateException("DocumentService not initialized")
+    private val authGate: AuthGate
+        get() = SecureCoreServiceLocator.authGate
+            ?: throw IllegalStateException("AuthGate not initialized")
 
     private val tempDir: File
         get() = File(reactApplicationContext.cacheDir, "previews")
@@ -44,7 +45,7 @@ class SecureCoreModule(
                     ?: return@launch promise.reject("IO_ERROR", "Cannot open URI")
 
                 inputStream.use { stream ->
-                    documentService.importDocument(stream, filename, mimeType)
+                    authGate.importDocument(stream, filename, mimeType)
                         .fold(
                             onSuccess = { docId ->
                                 val result = Arguments.createMap().apply {
@@ -65,7 +66,7 @@ class SecureCoreModule(
     fun decryptToMemory(docId: String, promise: Promise) {
         scope.launch {
             try {
-                documentService.decryptDocument(docId)
+                authGate.decryptDocument(docId)
                     .fold(
                         onSuccess = { bytes ->
                             val result = Arguments.createMap().apply {
@@ -86,7 +87,7 @@ class SecureCoreModule(
     fun decryptToTempFile(docId: String, promise: Promise) {
         scope.launch {
             try {
-                documentService.decryptDocumentToTempFile(docId, tempDir)
+                authGate.decryptDocumentToTempFile(docId, tempDir)
                     .fold(
                         onSuccess = { file ->
                             val result = Arguments.createMap().apply {
@@ -106,7 +107,7 @@ class SecureCoreModule(
     fun listDocuments(promise: Promise) {
         scope.launch {
             try {
-                documentService.listDocuments()
+                authGate.listDocuments()
                     .fold(
                         onSuccess = { docs ->
                             val array = Arguments.createArray()
@@ -134,7 +135,7 @@ class SecureCoreModule(
     fun deleteDocument(docId: String, promise: Promise) {
         scope.launch {
             try {
-                documentService.deleteDocument(docId)
+                authGate.deleteDocument(docId)
                     .fold(
                         onSuccess = {
                             val result = Arguments.createMap().apply {
@@ -156,7 +157,7 @@ class SecureCoreModule(
     }
 
     private suspend fun getMimeType(docId: String): String {
-        return documentService.listDocuments()
+        return authGate.listDocuments()
             .getOrNull()
             ?.find { it.docId == docId }
             ?.mimeType
@@ -166,6 +167,11 @@ class SecureCoreModule(
     companion object {
         internal fun rejectWithError(promise: Promise, error: Throwable) {
             val (code, message) = when (error) {
+                is AuthError.AuthRequired -> "AUTH_REQUIRED" to "Authentication required"
+                is AuthError.UserCancelled -> "AUTH_REQUIRED" to "Authentication cancelled"
+                is AuthError.LockedOut -> "AUTH_REQUIRED" to "Too many attempts, try again later"
+                is AuthError.NoBiometrics -> "AUTH_REQUIRED" to "No biometrics enrolled"
+                is AuthError.NotAvailable -> "AUTH_REQUIRED" to "Biometric hardware not available"
                 is SecureCoreError.CryptoError -> "CRYPTO_ERROR" to "Cryptographic operation failed"
                 is SecureCoreError.InvalidParameter -> "INVALID_PARAM" to "Invalid parameter"
                 is SecureCoreError.IoError -> "IO_ERROR" to "I/O error"

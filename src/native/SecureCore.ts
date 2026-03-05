@@ -7,7 +7,8 @@ export type SecureCoreErrorCode =
   | 'NOT_FOUND'
   | 'INVALID_PARAM'
   | 'IO_ERROR'
-  | 'KEY_ERROR';
+  | 'KEY_ERROR'
+  | 'AUTH_REQUIRED';
 
 export class SecureCoreError extends Error {
   constructor(
@@ -28,7 +29,7 @@ export interface DocumentMeta {
 }
 
 function isSecureCoreErrorCode(code: string): code is SecureCoreErrorCode {
-  return ['CRYPTO_ERROR', 'NOT_FOUND', 'INVALID_PARAM', 'IO_ERROR', 'KEY_ERROR'].includes(code);
+  return ['CRYPTO_ERROR', 'NOT_FOUND', 'INVALID_PARAM', 'IO_ERROR', 'KEY_ERROR', 'AUTH_REQUIRED'].includes(code);
 }
 
 async function wrapNativeCall<T>(call: Promise<T>): Promise<T> {
