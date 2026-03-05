@@ -69,6 +69,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: chmod +x scripts/run-ffi-harness.sh && ./scripts/run-ffi-harness.sh
 
+  ffi-header-check:
+    name: FFI Header Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify C header matches Rust FFI exports
+        run: chmod +x scripts/check-ffi-header.sh && ./scripts/check-ffi-header.sh
+
   no-unsafe:
     name: Unsafe Audit
     runs-on: ubuntu-latest
