@@ -13,7 +13,7 @@ class MetadataRepository(private val dao: DocumentDao) {
             SecureCoreResult.Success(Unit)
         } catch (e: Exception) {
             SecureCoreResult.Error(
-                com.securecore.SecureCoreError.IoError(java.io.IOException("metadata save failed", e))
+                com.securecore.SecureCoreError.IoError("metadata save failed: ${e.message}")
             )
         }
     }
@@ -23,7 +23,7 @@ class MetadataRepository(private val dao: DocumentDao) {
             SecureCoreResult.Success(dao.findById(docId))
         } catch (e: Exception) {
             SecureCoreResult.Error(
-                com.securecore.SecureCoreError.IoError(java.io.IOException("metadata get failed", e))
+                com.securecore.SecureCoreError.IoError("metadata get failed: ${e.message}")
             )
         }
     }
@@ -33,7 +33,7 @@ class MetadataRepository(private val dao: DocumentDao) {
             SecureCoreResult.Success(dao.findAll())
         } catch (e: Exception) {
             SecureCoreResult.Error(
-                com.securecore.SecureCoreError.IoError(java.io.IOException("metadata list failed", e))
+                com.securecore.SecureCoreError.IoError("metadata list failed: ${e.message}")
             )
         }
     }
@@ -43,7 +43,7 @@ class MetadataRepository(private val dao: DocumentDao) {
             SecureCoreResult.Success(dao.delete(docId))
         } catch (e: Exception) {
             SecureCoreResult.Error(
-                com.securecore.SecureCoreError.IoError(java.io.IOException("metadata delete failed", e))
+                com.securecore.SecureCoreError.IoError("metadata delete failed: ${e.message}")
             )
         }
     }
