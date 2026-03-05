@@ -4,7 +4,7 @@ import GRDB
 /// Repository for document metadata CRUD operations.
 ///
 /// Wraps GRDB read/write access to the `documents` table.
-public final class MetadataRepository {
+public final class MetadataRepository: MetadataRepositoryProtocol {
     private let dbQueue: DatabaseQueue
 
     public init(database: AppDatabase) {
