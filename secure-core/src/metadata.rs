@@ -1,6 +1,15 @@
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use crate::error::SecureCoreError;
+
+/// Current supported schema version for `WrapsEnvelope`.
+pub const WRAPS_SCHEMA_VERSION: &str = "1.1";
+
+/// Known wrapping algorithm identifiers.
+pub const ALGO_AES_256_GCM_KEYSTORE: &str = "AES-256-GCM-KEYSTORE";
+pub const ALGO_AES_256_GCM_KEYCHAIN: &str = "AES-256-GCM-KEYCHAIN";
 
 /// Metadata associated with an encrypted document.
 ///
@@ -38,27 +47,150 @@ pub struct DocumentMetadata {
     )]
     pub content_hash: Option<[u8; 32]>,
 
-    /// The wrapped (encrypted) DEK, managed by the platform's keystore.
-    pub wrapped_dek: WrappedDek,
+    /// The wrapped (encrypted) DEK envelope.
+    pub wrapped_dek: WrapsEnvelope,
 }
 
-/// A DEK wrapped (encrypted) by the platform's key management system.
+/// Canonical envelope for a wrapped DEK.
+///
+/// See `docs/wraps-schema-v1.md` for the frozen specification.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WrappedDek {
-    /// The DEK encrypted by the OS keystore (Keychain / KeyStore).
-    #[serde(with = "hex_bytes")]
-    pub device_wrap: Vec<u8>,
+pub struct WrapsEnvelope {
+    /// Schema version (must be "1.1" for V1).
+    pub schema_version: String,
 
-    /// Reserved for V2: recovery-wrapped DEK (e.g. for account recovery).
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "optional_hex_bytes",
-        default
-    )]
-    pub recovery_wrap: Option<Vec<u8>>,
+    /// Device-local wrap using OS keystore. MUST NOT be None.
+    pub device: Option<DeviceWrap>,
 
-    /// Algorithm used for wrapping (e.g. "AES-KWP", "RSA-OAEP").
-    pub wrap_algorithm: String,
+    /// Recovery wrap for cross-device restore. null/None in V1.
+    pub recovery: Option<serde_json::Value>,
+}
+
+/// Device-local DEK wrap produced by the OS keystore.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceWrap {
+    /// Wrapping algorithm (e.g. "AES-256-GCM-KEYSTORE").
+    pub algo: String,
+
+    /// Alias of the master key in the OS keystore/keychain.
+    pub key_alias: String,
+
+    /// Base64-encoded initialization vector.
+    pub iv: String,
+
+    /// Base64-encoded authentication tag.
+    pub tag: String,
+
+    /// Base64-encoded ciphertext (wrapped DEK, without tag).
+    pub ciphertext: String,
+}
+
+impl WrapsEnvelope {
+    /// Creates a new V1 envelope with a device wrap.
+    pub fn new_device(
+        algo: String,
+        key_alias: String,
+        iv: Vec<u8>,
+        tag: Vec<u8>,
+        ciphertext: Vec<u8>,
+    ) -> Self {
+        Self {
+            schema_version: WRAPS_SCHEMA_VERSION.to_string(),
+            device: Some(DeviceWrap {
+                algo,
+                key_alias,
+                iv: BASE64.encode(&iv),
+                tag: BASE64.encode(&tag),
+                ciphertext: BASE64.encode(&ciphertext),
+            }),
+            recovery: None,
+        }
+    }
+
+    /// Validates the envelope structure.
+    pub fn validate(&self) -> Result<(), SecureCoreError> {
+        // Check schema version
+        if self.schema_version != WRAPS_SCHEMA_VERSION {
+            return Err(SecureCoreError::InvalidParameter(format!(
+                "unsupported wraps schema_version: {} (expected {})",
+                self.schema_version, WRAPS_SCHEMA_VERSION,
+            )));
+        }
+
+        // device must be present
+        let device = self.device.as_ref().ok_or_else(|| {
+            SecureCoreError::InvalidParameter("device wrap must not be null".into())
+        })?;
+
+        // algo must be non-empty and known
+        if device.algo.is_empty() {
+            return Err(SecureCoreError::InvalidParameter(
+                "device.algo must not be empty".into(),
+            ));
+        }
+
+        // key_alias must be non-empty
+        if device.key_alias.is_empty() {
+            return Err(SecureCoreError::InvalidParameter(
+                "device.key_alias must not be empty".into(),
+            ));
+        }
+
+        // Validate base64 fields are decodable and correct sizes
+        let iv_bytes = BASE64
+            .decode(&device.iv)
+            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.iv: invalid base64: {e}")))?;
+        if iv_bytes.len() != 12 {
+            return Err(SecureCoreError::InvalidParameter(format!(
+                "device.iv must be 12 bytes, got {}",
+                iv_bytes.len()
+            )));
+        }
+
+        let tag_bytes = BASE64
+            .decode(&device.tag)
+            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.tag: invalid base64: {e}")))?;
+        if tag_bytes.len() != 16 {
+            return Err(SecureCoreError::InvalidParameter(format!(
+                "device.tag must be 16 bytes, got {}",
+                tag_bytes.len()
+            )));
+        }
+
+        let ct_bytes = BASE64.decode(&device.ciphertext).map_err(|e| {
+            SecureCoreError::InvalidParameter(format!("device.ciphertext: invalid base64: {e}"))
+        })?;
+        if ct_bytes.is_empty() {
+            return Err(SecureCoreError::InvalidParameter(
+                "device.ciphertext must not be empty".into(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+impl DeviceWrap {
+    /// Decodes the IV from base64.
+    pub fn iv_bytes(&self) -> Result<Vec<u8>, SecureCoreError> {
+        BASE64
+            .decode(&self.iv)
+            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.iv: {e}")))
+    }
+
+    /// Decodes the tag from base64.
+    pub fn tag_bytes(&self) -> Result<Vec<u8>, SecureCoreError> {
+        BASE64
+            .decode(&self.tag)
+            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.tag: {e}")))
+    }
+
+    /// Decodes the ciphertext from base64.
+    pub fn ciphertext_bytes(&self) -> Result<Vec<u8>, SecureCoreError> {
+        BASE64
+            .decode(&self.ciphertext)
+            .map_err(|e| SecureCoreError::InvalidParameter(format!("device.ciphertext: {e}")))
+    }
 }
 
 impl DocumentMetadata {
@@ -74,68 +206,11 @@ impl DocumentMetadata {
                 "filename must not be empty".into(),
             ));
         }
-        if self.wrapped_dek.device_wrap.is_empty() {
-            return Err(SecureCoreError::InvalidParameter(
-                "wrapped_dek.device_wrap must not be empty".into(),
-            ));
-        }
-        if self.wrapped_dek.wrap_algorithm.is_empty() {
-            return Err(SecureCoreError::InvalidParameter(
-                "wrapped_dek.wrap_algorithm must not be empty".into(),
-            ));
-        }
-        Ok(())
+        self.wrapped_dek.validate()
     }
 }
 
-// ── Hex serialization helpers ───────────────────────────────────────────
-
-mod hex_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
-        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        s.serialize_str(&hex)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-        let hex = String::deserialize(d)?;
-        (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(serde::de::Error::custom))
-            .collect()
-    }
-}
-
-mod optional_hex_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(val: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
-        match val {
-            Some(bytes) => {
-                let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-                s.serialize_some(&hex)
-            }
-            None => s.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
-        let opt: Option<String> = Option::deserialize(d)?;
-        match opt {
-            Some(hex) => {
-                let bytes: Result<Vec<u8>, _> = (0..hex.len())
-                    .step_by(2)
-                    .map(|i| {
-                        u8::from_str_radix(&hex[i..i + 2], 16).map_err(serde::de::Error::custom)
-                    })
-                    .collect();
-                bytes.map(Some)
-            }
-            None => Ok(None),
-        }
-    }
-}
+// ── Hash serialization helpers ────────────────────────────────────────────
 
 fn serialize_optional_hash<S: serde::Serializer>(
     val: &Option<[u8; 32]>,

@@ -183,7 +183,7 @@ fn generate_compat_pack_v1() {
         "text/plain",
     );
 
-    let vectors = vec![v1, v2, v3, v4];
+    let vectors = [v1, v2, v3, v4];
 
     // ── Error vectors ──────────────────────────────────────────────
 

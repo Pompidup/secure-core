@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::crypto::Dek;
 use crate::error::SecureCoreError;
-use crate::metadata::{DocumentMetadata, WrappedDek};
+use crate::metadata::{DocumentMetadata, WrapsEnvelope};
 use crate::streaming::{decrypt_stream, encrypt_stream, StreamMetadata};
 
 /// Result of a file encryption operation.
@@ -53,10 +53,10 @@ pub fn encrypt_file(
         plaintext_size: Some(stream_meta.total_plaintext_bytes),
         ciphertext_size,
         content_hash: None,
-        wrapped_dek: WrappedDek {
-            device_wrap: Vec::new(),
-            recovery_wrap: None,
-            wrap_algorithm: String::new(),
+        wrapped_dek: WrapsEnvelope {
+            schema_version: crate::metadata::WRAPS_SCHEMA_VERSION.to_string(),
+            device: None,
+            recovery: None,
         },
     };
 
