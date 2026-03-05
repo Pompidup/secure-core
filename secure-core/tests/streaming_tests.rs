@@ -36,9 +36,12 @@ fn test_stream_roundtrip_small() {
     let encrypted_file = NamedTempFile::new().unwrap();
     let decrypted_file = NamedTempFile::new().unwrap();
 
-    let enc_meta = encrypt_file(input_file.path(), encrypted_file.path(), &dek).unwrap();
-    assert_eq!(enc_meta.chunks, 1);
-    assert_eq!(enc_meta.total_plaintext_bytes, plaintext.len() as u64);
+    let enc_result = encrypt_file(input_file.path(), encrypted_file.path(), &dek).unwrap();
+    assert_eq!(enc_result.stream_metadata.chunks, 1);
+    assert_eq!(
+        enc_result.stream_metadata.total_plaintext_bytes,
+        plaintext.len() as u64
+    );
 
     let dec_meta = decrypt_file(encrypted_file.path(), decrypted_file.path(), &dek).unwrap();
     assert_eq!(dec_meta.chunks, 1);
@@ -58,9 +61,12 @@ fn test_stream_roundtrip_multi_chunk() {
     let encrypted_file = NamedTempFile::new().unwrap();
     let decrypted_file = NamedTempFile::new().unwrap();
 
-    let enc_meta = encrypt_file(input_file.path(), encrypted_file.path(), &dek).unwrap();
-    assert_eq!(enc_meta.chunks, 6);
-    assert_eq!(enc_meta.total_plaintext_bytes, plaintext.len() as u64);
+    let enc_result = encrypt_file(input_file.path(), encrypted_file.path(), &dek).unwrap();
+    assert_eq!(enc_result.stream_metadata.chunks, 6);
+    assert_eq!(
+        enc_result.stream_metadata.total_plaintext_bytes,
+        plaintext.len() as u64
+    );
 
     let dec_meta = decrypt_file(encrypted_file.path(), decrypted_file.path(), &dek).unwrap();
     assert_eq!(dec_meta.chunks, 6);
