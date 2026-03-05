@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -166,6 +167,23 @@ jobs:
         with:
           name: compat-pack-v1
           path: testdata/compat/v1/
+
+  ios-build:
+    name: iOS Build (xcframework)
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+      - name: Build xcframework
+        run: chmod +x scripts/build-ios.sh && ./scripts/build-ios.sh
+      - name: Upload xcframework
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-core-ios-xcframework
+          path: dist/ios/secure_core.xcframework/
 
   no-unsafe:
     name: Unsafe Audit
