@@ -1,0 +1,183 @@
+package com.securecore.rn
+
+import android.net.Uri
+import android.util.Base64
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.Promise
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.securecore.DocumentService
+import com.securecore.SecureCoreError
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.io.File
+
+class SecureCoreModule(
+    reactContext: ReactApplicationContext
+) : ReactContextBaseJavaModule(reactContext) {
+
+    override fun getName(): String = "SecureCore"
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val documentService: DocumentService
+        get() = SecureCoreServiceLocator.documentService
+            ?: throw IllegalStateException("DocumentService not initialized")
+
+    private val tempDir: File
+        get() = File(reactApplicationContext.cacheDir, "previews")
+
+    @ReactMethod
+    fun importDocument(uriString: String, promise: Promise) {
+        scope.launch {
+            try {
+                val uri = Uri.parse(uriString)
+                val contentResolver = reactApplicationContext.contentResolver
+                val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+                val filename = uri.lastPathSegment ?: "unknown"
+
+                val inputStream = contentResolver.openInputStream(uri)
+                    ?: return@launch promise.reject("IO_ERROR", "Cannot open URI")
+
+                inputStream.use { stream ->
+                    documentService.importDocument(stream, filename, mimeType)
+                        .fold(
+                            onSuccess = { docId ->
+                                val result = Arguments.createMap().apply {
+                                    putString("docId", docId)
+                                }
+                                promise.resolve(result)
+                            },
+                            onFailure = { rejectWithError(promise, it) }
+                        )
+                }
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun decryptToMemory(docId: String, promise: Promise) {
+        scope.launch {
+            try {
+                documentService.decryptDocument(docId)
+                    .fold(
+                        onSuccess = { bytes ->
+                            val result = Arguments.createMap().apply {
+                                putString("bytes", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                                putString("mimeType", getMimeType(docId))
+                            }
+                            promise.resolve(result)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun decryptToTempFile(docId: String, promise: Promise) {
+        scope.launch {
+            try {
+                documentService.decryptDocumentToTempFile(docId, tempDir)
+                    .fold(
+                        onSuccess = { file ->
+                            val result = Arguments.createMap().apply {
+                                putString("uri", Uri.fromFile(file).toString())
+                            }
+                            promise.resolve(result)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun listDocuments(promise: Promise) {
+        scope.launch {
+            try {
+                documentService.listDocuments()
+                    .fold(
+                        onSuccess = { docs ->
+                            val array = Arguments.createArray()
+                            for (doc in docs) {
+                                val map = Arguments.createMap().apply {
+                                    putString("docId", doc.docId)
+                                    putString("filename", doc.filename)
+                                    putString("mimeType", doc.mimeType)
+                                    putDouble("createdAt", doc.createdAt.toDouble())
+                                    putDouble("ciphertextSize", doc.ciphertextSize.toDouble())
+                                }
+                                array.pushMap(map)
+                            }
+                            promise.resolve(array)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun deleteDocument(docId: String, promise: Promise) {
+        scope.launch {
+            try {
+                documentService.deleteDocument(docId)
+                    .fold(
+                        onSuccess = {
+                            val result = Arguments.createMap().apply {
+                                putBoolean("deleted", true)
+                            }
+                            promise.resolve(result)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    override fun invalidate() {
+        scope.cancel()
+        super.invalidate()
+    }
+
+    private suspend fun getMimeType(docId: String): String {
+        return documentService.listDocuments()
+            .getOrNull()
+            ?.find { it.docId == docId }
+            ?.mimeType
+            ?: "application/octet-stream"
+    }
+
+    companion object {
+        internal fun rejectWithError(promise: Promise, error: Throwable) {
+            val (code, message) = when (error) {
+                is SecureCoreError.CryptoError -> "CRYPTO_ERROR" to "Cryptographic operation failed"
+                is SecureCoreError.InvalidParameter -> "INVALID_PARAM" to "Invalid parameter"
+                is SecureCoreError.IoError -> "IO_ERROR" to "I/O error"
+                is SecureCoreError.InvalidFormat -> "CRYPTO_ERROR" to "Invalid data format"
+                is SecureCoreError.UnsupportedVersion -> "CRYPTO_ERROR" to "Unsupported format version"
+                is SecureCoreError.Unknown -> "CRYPTO_ERROR" to "Operation failed"
+                is SecurityException -> "KEY_ERROR" to "Key access denied"
+                is java.security.KeyStoreException -> "KEY_ERROR" to "Keystore error"
+                is java.security.UnrecoverableKeyException -> "KEY_ERROR" to "Key unavailable"
+                else -> "IO_ERROR" to "Unexpected error"
+            }
+            promise.reject(code, message)
+        }
+    }
+}
