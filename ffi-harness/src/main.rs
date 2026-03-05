@@ -60,8 +60,8 @@ fn test_roundtrip(label: &str, size: usize) {
     // SAFETY: enc_result.data was returned by secure_core_encrypt_bytes.
     let blob = unsafe { slice::from_raw_parts(enc_result.data.ptr, enc_result.data.len) };
 
-    // SAFETY: blob and dek are valid slices with correct lengths.
     let dec_result =
+        // SAFETY: blob and dek are valid slices with correct lengths.
         unsafe { secure_core_decrypt_bytes(blob.as_ptr(), blob.len(), dek.as_ptr(), dek.len()) };
     check(
         dec_result.status == FFI_OK,
@@ -98,8 +98,8 @@ fn test_null_buffer() {
     let dek = make_dek();
 
     // plaintext_ptr is null with len > 0 → should fail
-    // SAFETY: intentionally passing null to test error handling.
     let result =
+        // SAFETY: intentionally passing null to test error handling.
         unsafe { secure_core_encrypt_bytes(std::ptr::null(), 10, dek.as_ptr(), dek.len()) };
     check(
         result.status == FFI_ERROR_INVALID_PARAM,
@@ -193,8 +193,8 @@ fn test_tampered_ciphertext() {
     check(enc_result.status == FFI_OK, "tampered: encrypt failed");
 
     // Copy and flip a bit in the ciphertext area (after header)
-    // SAFETY: enc_result.data was returned by secure_core_encrypt_bytes.
     let mut tampered =
+        // SAFETY: enc_result.data was returned by secure_core_encrypt_bytes.
         unsafe { slice::from_raw_parts(enc_result.data.ptr, enc_result.data.len).to_vec() };
     if tampered.len() > 26 {
         tampered[26] ^= 0xFF;
@@ -232,8 +232,8 @@ fn test_unsupported_version() {
     check(enc_result.status == FFI_OK, "version: encrypt failed");
 
     // Copy and set version to 99 (bytes 4-5, little-endian)
-    // SAFETY: enc_result.data was returned by secure_core_encrypt_bytes.
     let mut bad_version =
+        // SAFETY: enc_result.data was returned by secure_core_encrypt_bytes.
         unsafe { slice::from_raw_parts(enc_result.data.ptr, enc_result.data.len).to_vec() };
     bad_version[4] = 99;
     bad_version[5] = 0;
