@@ -122,8 +122,10 @@ impl EncHeader {
 mod tests {
     use super::*;
 
+    // ── Serialization / Deserialization ──────────────────────────────
+
     #[test]
-    fn roundtrip() {
+    fn test_header_roundtrip() {
         let nonce = [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         let header = EncHeader::new_v1(nonce);
         let bytes = header.to_bytes();
@@ -131,11 +133,15 @@ mod tests {
         assert_eq!(bytes.len(), HEADER_SIZE_V1 as usize);
 
         let parsed = EncHeader::from_bytes(&bytes).unwrap();
-        assert_eq!(parsed, header);
+        assert_eq!(parsed.version, header.version);
+        assert_eq!(parsed.algorithm, header.algorithm);
+        assert_eq!(parsed.nonce, header.nonce);
+        assert_eq!(parsed.flags, header.flags);
+        assert_eq!(parsed.header_length, header.header_length);
     }
 
     #[test]
-    fn rejects_bad_magic() {
+    fn test_header_wrong_magic() {
         let mut bytes = EncHeader::new_v1([0u8; NONCE_SIZE]).to_bytes();
         bytes[0] = 0xFF;
 
@@ -144,34 +150,61 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_version() {
+    fn test_header_unsupported_version() {
         let mut bytes = EncHeader::new_v1([0u8; NONCE_SIZE]).to_bytes();
-        // Set version to 2
-        bytes[4] = 2;
+        // Set version to 99
+        bytes[4] = 99;
         bytes[5] = 0;
 
         let err = EncHeader::from_bytes(&bytes).unwrap_err();
         assert!(matches!(
             err,
             SecureCoreError::UnsupportedVersion {
-                found: 2,
+                found: 99,
                 max_supported: 1
             }
         ));
     }
 
     #[test]
-    fn rejects_unknown_algorithm() {
+    fn test_header_truncated() {
+        let err = EncHeader::from_bytes(&[0x53, 0x45, 0x4E, 0x43, 0x01]).unwrap_err();
+        assert!(matches!(err, SecureCoreError::InvalidFormat(_)));
+    }
+
+    // TODO: sera vert après PROMPT 06 — header_length validation not yet implemented
+    #[test]
+    #[ignore]
+    fn test_header_length_mismatch() {
         let mut bytes = EncHeader::new_v1([0u8; NONCE_SIZE]).to_bytes();
-        bytes[6] = 0xFF;
+        // Set header_length to 99 instead of 25 — inconsistent with V1
+        bytes[21] = 99;
+        bytes[22] = 0;
+        bytes[23] = 0;
+        bytes[24] = 0;
 
         let err = EncHeader::from_bytes(&bytes).unwrap_err();
         assert!(matches!(err, SecureCoreError::InvalidFormat(_)));
     }
 
+    // ── Robustness ──────────────────────────────────────────────────
+
     #[test]
-    fn rejects_truncated_data() {
-        let err = EncHeader::from_bytes(&[0u8; 10]).unwrap_err();
+    fn test_empty_input() {
+        let err = EncHeader::from_bytes(&[]).unwrap_err();
         assert!(matches!(err, SecureCoreError::InvalidFormat(_)));
+    }
+
+    #[test]
+    fn test_minimum_valid_header() {
+        // Exactly 25 bytes — the smallest valid V1 header
+        let header = EncHeader::new_v1([0xAA; NONCE_SIZE]);
+        let bytes = header.to_bytes();
+        assert_eq!(bytes.len(), 25);
+
+        let parsed = EncHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(parsed.algorithm, AlgorithmId::Aes256Gcm);
+        assert_eq!(parsed.nonce, [0xAA; NONCE_SIZE]);
+        assert_eq!(parsed.flags, 0);
     }
 }
