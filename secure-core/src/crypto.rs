@@ -9,8 +9,11 @@ use crate::validation::validate_dek;
 /// GCM auth tag size in bytes.
 const TAG_SIZE: usize = 16;
 
-/// Maximum plaintext size: 4 GB.
+/// Maximum plaintext size: ~4 GB on 64-bit, ~2 GB on 32-bit.
+#[cfg(target_pointer_width = "64")]
 const MAX_PLAINTEXT_SIZE: usize = 4 * 1024 * 1024 * 1024;
+#[cfg(not(target_pointer_width = "64"))]
+const MAX_PLAINTEXT_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
 /// A Data Encryption Key that is zeroized on drop.
 ///

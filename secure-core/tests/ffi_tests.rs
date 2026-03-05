@@ -160,8 +160,8 @@ fn test_ffi_version_returns_string() {
 fn test_ffi_encrypt_empty_plaintext() {
     let dek = make_test_dek();
 
-    // SAFETY: null plaintext_ptr with len 0 is valid (empty input).
     let enc_result =
+        // SAFETY: null plaintext_ptr with len 0 is valid (empty input).
         unsafe { secure_core_encrypt_bytes(std::ptr::null(), 0, dek.as_ptr(), dek.len()) };
     assert_eq!(enc_result.status, FFI_OK);
     assert!(enc_result.data.len > 0); // header + tag
