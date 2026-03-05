@@ -10,6 +10,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 aes-gcm = "0.10"
+jni = { version = "0.21", optional = true }
 libc = "0.2"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
@@ -26,6 +27,7 @@ harness = false
 
 [features]
 _test-vectors = []
+jni = ["dep:jni"]
 log = ["dep:log"]
 
 [dependencies.log]

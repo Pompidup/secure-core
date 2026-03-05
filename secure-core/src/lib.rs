@@ -24,6 +24,10 @@ pub mod error;
 /// C-compatible FFI surface for mobile platform integration.
 pub mod ffi;
 
+/// JNI bridge for Android (enabled via the `jni` feature).
+#[cfg(feature = "jni")]
+pub mod jni_bridge;
+
 /// `.enc` V1 binary format: header parsing and serialization.
 pub mod format;
 

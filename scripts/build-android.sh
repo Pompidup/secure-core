@@ -31,7 +31,7 @@ done
 echo "==> Building for Android targets"
 for target in "${TARGETS[@]}"; do
     echo "--- Building $target (release)"
-    cargo build --release --target "$target"
+    cargo build --release --features jni --target "$target"
 done
 
 echo "==> Copying artifacts to dist/"

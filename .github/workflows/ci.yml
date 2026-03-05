@@ -115,7 +115,7 @@ jobs:
           mkdir -p .cargo
           printf '[target.x86_64-linux-android]\nlinker = "x86_64-linux-android35-clang"\n' >> .cargo/config.toml
           export PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-          cargo build --release --target x86_64-linux-android
+          cargo build --release --features jni --target x86_64-linux-android
           mkdir -p android/secure-core-android/src/main/jniLibs/x86_64
           cp target/x86_64-linux-android/release/libsecure_core.so \
              android/secure-core-android/src/main/jniLibs/x86_64/
