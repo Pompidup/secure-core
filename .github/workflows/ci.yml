@@ -142,6 +142,31 @@ jobs:
           name: android-jni-test-results
           path: android/secure-core-android/build/reports/androidTests/
 
+  compat-tests:
+    name: Compat Tests (V1 Golden Files)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run compat tests
+        run: cargo test --test compat_tests --features _test-vectors
+      - name: Check golden files are deterministic
+        run: |
+          cargo test --test generate_compat_pack --features _test-vectors -- --ignored 2>&1
+          if ! git diff --quiet testdata/compat/v1/; then
+            echo "::error::FORMAT REGRESSION DETECTED — golden files differ after re-generation. Bump version or document migration."
+            git diff --stat testdata/compat/v1/
+            exit 1
+          fi
+      - name: Upload compat pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-pack-v1
+          path: testdata/compat/v1/
+
   no-unsafe:
     name: Unsafe Audit
     runs-on: ubuntu-latest
