@@ -1,0 +1,8 @@
+[package]
+name = "secure-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core cryptographic primitives and secure building blocks"
+license = "Apache-2.0"
+
+[dependencies]
