@@ -1,0 +1,13 @@
+{
+  "contentHash": "1fde1cea3240cef99ba4ad2ff4a783a18417039dc227cc2e51a9d7872ffa3adb",
+  "headerParsed": {
+    "algorithm": "AES-256-GCM",
+    "algorithmId": "0x01",
+    "flags": "0x0000",
+    "headerLength": 25,
+    "nonce": "e0e1e2e3e4e5e6e7e8e9eaeb",
+    "version": 1
+  },
+  "mimeType": "text/plain",
+  "plaintextSize": 256
+}

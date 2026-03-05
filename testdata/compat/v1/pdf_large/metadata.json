@@ -1,0 +1,13 @@
+{
+  "contentHash": "fa1e9f5d47c985d51f9706e270007da85e6cf423bf489337d232ce4f766bdbd0",
+  "headerParsed": {
+    "algorithm": "AES-256-GCM",
+    "algorithmId": "0x01",
+    "flags": "0x0000",
+    "headerLength": 25,
+    "nonce": "d0d1d2d3d4d5d6d7d8d9dadb",
+    "version": 1
+  },
+  "mimeType": "application/pdf",
+  "plaintextSize": 5242880
+}

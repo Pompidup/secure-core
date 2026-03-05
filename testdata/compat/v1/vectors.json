@@ -1,0 +1,59 @@
+{
+  "produced_at": "2026-03-05",
+  "produced_by": "secure-core v0.1.0 / Rust",
+  "vectors": [
+    {
+      "cipher_sha256": "cbc414ad9617953bbdbaf78ecb91213570bb12c395201d3741e4a923e0b3eef0",
+      "dek_ref": "dek_image_small",
+      "header": {
+        "algo": "AES-256-GCM",
+        "nonce": "b0b1b2b3b4b5b6b7b8b9babb",
+        "version": 1
+      },
+      "id": "image_small",
+      "mime_type": "image/jpeg",
+      "plain_sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+      "plaintext_size": 1024
+    },
+    {
+      "cipher_sha256": "c42a6e153b7c6dea4b17a743d22986bd231f3609cd0c7810ddb5b134d4bc3896",
+      "dek_ref": "dek_image_medium",
+      "header": {
+        "algo": "AES-256-GCM",
+        "nonce": "c0c1c2c3c4c5c6c7c8c9cacb",
+        "version": 1
+      },
+      "id": "image_medium",
+      "mime_type": "image/png",
+      "plain_sha256": "9ad659518794ca5d851d428ec46328b5a19c79be6b433ffe529337df9be84f93",
+      "plaintext_size": 512000
+    },
+    {
+      "cipher_sha256": "b09c60dc2bee36cd89c49d7e37cabf39b71a7c558c4c59378cfe42f5f7bc26b5",
+      "dek_ref": "dek_pdf_large",
+      "header": {
+        "algo": "AES-256-GCM",
+        "nonce": "d0d1d2d3d4d5d6d7d8d9dadb",
+        "version": 1
+      },
+      "id": "pdf_large",
+      "mime_type": "application/pdf",
+      "plain_sha256": "fa1e9f5d47c985d51f9706e270007da85e6cf423bf489337d232ce4f766bdbd0",
+      "plaintext_size": 5242880
+    },
+    {
+      "cipher_sha256": "f7ddd6c66bb12f444ec39d76439a4bd994c37d6499539a4c064813dba529357f",
+      "dek_ref": "dek_text_small",
+      "header": {
+        "algo": "AES-256-GCM",
+        "nonce": "e0e1e2e3e4e5e6e7e8e9eaeb",
+        "version": 1
+      },
+      "id": "text_small",
+      "mime_type": "text/plain",
+      "plain_sha256": "1fde1cea3240cef99ba4ad2ff4a783a18417039dc227cc2e51a9d7872ffa3adb",
+      "plaintext_size": 256
+    }
+  ],
+  "version": "1"
+}
