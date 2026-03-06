@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-ios] - 2026-03-06
+
+### Added
+
+- Support iOS via Swift Package (SecureCore framework)
+- Same API as Android: importDocument, decryptDocument, listDocuments, deleteDocument
+- Same security guarantees: AES-256-GCM encryption, per-document DEK, zeroization
+- FaceID / TouchID authentication with passcode fallback (via Keychain access control)
+- Secure preview management: in-memory for images/text, temp file for PDF with auto-purge
+- React Native bridge module (SecureCoreModule.swift + ObjC bridge) with identical JS contract
+- Privacy Manifest (PrivacyInfo.xcprivacy) for App Store compliance
+- Hardening test suite: anti-leak, anti-loss, tamper detection, performance (50MB budget)
+- Preview lifecycle observer: auto-purge on app background and foreground
+- ReconciliationService for filesystem/database consistency at startup
+- Backup exclusion on all stored files (.isExcludedFromBackupKey)
+
+### Known Limitations (V1 iOS)
+
+- Recovery after reinstallation not available (Keychain keys lost on device reset)
+- No streaming encryption (files loaded fully into memory, max 50MB)
+- Biometric testing requires physical device (simulator uses mock key manager)
+- iCloud restore results in inaccessible documents (expected -- Keychain not restored)
+
 ## [1.0.0] - 2026-03-05
 
 ### Features

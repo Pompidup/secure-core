@@ -62,9 +62,38 @@
 - [ ] Git tag `v1.0.0` created
 - [ ] GitHub Release created with AAB artifact
 
+## iOS
+
+- [ ] xcframework generated from tag `v0.1.0` (arm64 device + simulator)
+- [ ] Swift bridge tests pass (`swift test`)
+- [ ] iOS hardening tests pass (anti-leak, anti-loss, tamper, perf)
+- [ ] `PrivacyInfo.xcprivacy` included in bundle
+- [ ] Backup exclusion validated (`.isExcludedFromBackupKey`)
+- [ ] FaceID/TouchID + passcode fallback working
+- [ ] App signed with Apple Distribution certificate
+- [ ] App Store privacy nutrition labels filled (no data collected)
+- [ ] `CFBundleShortVersionString` = "1.0.0" (aligned with Android `versionName`)
+- [ ] See `docs/ios-release-checklist.md` for full iOS-specific checklist
+
+## Cross-Platform Alignment
+
+- [ ] Both platforms use the same `versionName` / `CFBundleShortVersionString` ("1.0.0")
+- [ ] JS/TS cross-platform contract tests pass (`npx jest SecureCore.crossplatform`)
+- [ ] Same error codes on both platforms (verified by contract tests)
+- [ ] `CHANGELOG.md` has entries for both `[1.0.0]` (Android) and `[1.0.0-ios]`
+- [ ] Release notes are consistent across Play Store and App Store
+
 ## Post-Release
 
+### Android
 - [ ] Verify app installs from Play Store on a real device
 - [ ] Verify import/decrypt/delete workflow end-to-end
 - [ ] Verify biometric prompt appears on decrypt
 - [ ] Monitor Play Console for crashes (first 24h)
+
+### iOS
+- [ ] Verify app installs from TestFlight on a real device
+- [ ] Verify import/decrypt/delete workflow end-to-end
+- [ ] Verify FaceID/TouchID prompt appears on decrypt
+- [ ] Verify iCloud restore scenario (empty state, no crash)
+- [ ] Monitor Xcode Organizer for crashes (first 48h)
