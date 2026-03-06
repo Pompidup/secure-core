@@ -40,5 +40,8 @@ pub mod metadata;
 /// Chunked streaming encryption/decryption (64 KB chunks).
 pub mod streaming;
 
+/// Passphrase-based DEK recovery (Argon2id + AES-256-GCM).
+pub mod recovery;
+
 /// Input validation helpers (DEK length, nonce length).
 pub mod validation;

@@ -76,4 +76,12 @@ export const SecureCoreAPI = {
   deleteDocument(docId: string): Promise<{ deleted: boolean }> {
     return wrapNativeCall(SecureCore.deleteDocument(docId));
   },
+
+  exportBundle(docIds: string[], passphrase: string): Promise<{ uri: string }> {
+    return wrapNativeCall(SecureCore.exportBundle(docIds, passphrase));
+  },
+
+  importBundle(bundleUri: string, passphrase: string): Promise<{ importedCount: number }> {
+    return wrapNativeCall(SecureCore.importBundle(bundleUri, passphrase));
+  },
 };

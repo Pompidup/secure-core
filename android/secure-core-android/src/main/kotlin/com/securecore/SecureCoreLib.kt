@@ -80,6 +80,38 @@ object SecureCoreLib {
         return wrapNative { nativeDecryptBytes(blob, dek) }
     }
 
+    // ── Recovery (passphrase-based DEK wrap/unwrap) ────────────────
+
+    @JvmStatic
+    private external fun nativeWrapDekWithPassphrase(dek: ByteArray, passphrase: String): NativeResult
+
+    @JvmStatic
+    private external fun nativeUnwrapDekWithPassphrase(recoveryWrapJson: String, passphrase: String): NativeResult
+
+    /**
+     * Wraps a DEK with a passphrase using Argon2id + AES-256-GCM.
+     * Returns the RecoveryWrap as a JSON string.
+     */
+    fun wrapDekWithPassphrase(dek: ByteArray, passphrase: String): String {
+        val result = wrapNative { nativeWrapDekWithPassphrase(dek, passphrase) }
+        return when (result) {
+            is SecureCoreResult.Success -> String(result.value, Charsets.UTF_8)
+            is SecureCoreResult.Error -> throw result.error
+        }
+    }
+
+    /**
+     * Unwraps a DEK from a JSON-encoded RecoveryWrap using the passphrase.
+     * Returns the 32-byte DEK.
+     */
+    fun unwrapDekWithPassphrase(recoveryWrapJson: String, passphrase: String): ByteArray {
+        val result = wrapNative { nativeUnwrapDekWithPassphrase(recoveryWrapJson, passphrase) }
+        return when (result) {
+            is SecureCoreResult.Success -> result.value
+            is SecureCoreResult.Error -> throw result.error
+        }
+    }
+
     // ── Internal ────────────────────────────────────────────────────
 
     /**

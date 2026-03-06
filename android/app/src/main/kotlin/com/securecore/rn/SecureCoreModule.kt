@@ -129,6 +129,62 @@ class SecureCoreModule(
     }
 
     @ReactMethod
+    fun exportBundle(docIds: com.facebook.react.bridge.ReadableArray, passphrase: String, promise: Promise) {
+        scope.launch {
+            try {
+                val ids = (0 until docIds.size()).map { docIds.getString(it) }
+                val exportService = SecureCoreServiceLocator.exportService
+                    ?: throw IllegalStateException("ExportService not initialized")
+
+                // Create temp file for the bundle
+                val tempFile = File(reactApplicationContext.cacheDir, "recovery_bundle_${System.currentTimeMillis()}.zip")
+                val outputUri = Uri.fromFile(tempFile)
+
+                exportService.exportBundle(ids, passphrase, outputUri)
+                    .fold(
+                        onSuccess = { report ->
+                            val result = Arguments.createMap().apply {
+                                putString("uri", outputUri.toString())
+                                putInt("exportedCount", report.exportedCount)
+                                putInt("failedCount", report.failedCount)
+                            }
+                            promise.resolve(result)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun importBundle(bundleUriString: String, passphrase: String, promise: Promise) {
+        scope.launch {
+            try {
+                val bundleUri = Uri.parse(bundleUriString)
+                val exportService = SecureCoreServiceLocator.exportService
+                    ?: throw IllegalStateException("ExportService not initialized")
+
+                exportService.importBundle(bundleUri, passphrase)
+                    .fold(
+                        onSuccess = { report ->
+                            val result = Arguments.createMap().apply {
+                                putInt("importedCount", report.importedCount)
+                                putInt("skippedCount", report.skippedCount)
+                                putInt("failedCount", report.failedCount)
+                            }
+                            promise.resolve(result)
+                        },
+                        onFailure = { rejectWithError(promise, it) }
+                    )
+            } catch (e: Exception) {
+                rejectWithError(promise, e)
+            }
+        }
+    }
+
+    @ReactMethod
     fun deleteDocument(docId: String, promise: Promise) {
         scope.launch {
             try {

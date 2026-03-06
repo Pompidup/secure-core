@@ -10,6 +10,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 aes-gcm = "0.10"
+argon2 = "0.5"
 base64 = "0.22"
 jni = { version = "0.21", optional = true }
 libc = "0.2"

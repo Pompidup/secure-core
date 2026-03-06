@@ -42,10 +42,34 @@ document and must be identical in structure across all platforms (Android, iOS, 
 | `tag` | string | YES | Base64-encoded authentication tag (16 bytes for GCM). |
 | `ciphertext` | string | YES | Base64-encoded wrapped DEK ciphertext (without tag). |
 
-### `recovery` Object (V2+, null in V1)
+### `recovery` Object (null in V1, populated in recovery bundles)
 
-Reserved for future use. When non-null, will contain a similar structure for
-account-level key recovery (e.g., server-escrowed wrap, social recovery).
+When non-null, contains a passphrase-derived wrap of the DEK for cross-device
+transfer. Used exclusively in recovery bundles (see `docs/recovery-format-v1.md`).
+
+```json
+"recovery": {
+  "algo": "AES-256-GCM-ARGON2ID",
+  "kdf": "argon2id-v19",
+  "kdf_params": { "m": 65536, "t": 3, "p": 4 },
+  "salt": "<base64 32 bytes>",
+  "iv": "<base64 12 bytes>",
+  "tag": "<base64 16 bytes>",
+  "ciphertext": "<base64 32 bytes>"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `algo` | string | YES | `"AES-256-GCM-ARGON2ID"` |
+| `kdf` | string | YES | `"argon2id-v19"` (Argon2id version 0x13) |
+| `kdf_params` | object | YES | `{ "m": 65536, "t": 3, "p": 4 }` — memory (KiB), iterations, parallelism |
+| `salt` | string | YES | Base64-encoded 32-byte random salt for Argon2id |
+| `iv` | string | YES | Base64-encoded 12-byte nonce for AES-256-GCM |
+| `tag` | string | YES | Base64-encoded 16-byte GCM authentication tag |
+| `ciphertext` | string | YES | Base64-encoded 32-byte wrapped DEK |
+
+The passphrase is **never stored** in the envelope or bundle.
 
 ## Rules
 
