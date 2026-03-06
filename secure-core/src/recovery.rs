@@ -172,11 +172,13 @@ pub fn unwrap_dek_with_passphrase(
     ct_with_tag.extend_from_slice(&tag);
 
     let gcm_nonce = Nonce::from_slice(&nonce);
-    let plaintext = cipher.decrypt(gcm_nonce, ct_with_tag.as_ref()).map_err(|_| {
-        SecureCoreError::CryptoError(
-            "recovery unwrap failed: invalid passphrase or tampered data".into(),
-        )
-    })?;
+    let plaintext = cipher
+        .decrypt(gcm_nonce, ct_with_tag.as_ref())
+        .map_err(|_| {
+            SecureCoreError::CryptoError(
+                "recovery unwrap failed: invalid passphrase or tampered data".into(),
+            )
+        })?;
 
     if plaintext.len() != 32 {
         return Err(SecureCoreError::CryptoError(format!(
