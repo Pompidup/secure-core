@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0-core] - 2026-03-10
+
+### Changed
+- **Repo separation**: `secure-core` is now a pure Rust cryptographic library. All mobile code (Android Kotlin adapter, iOS Swift adapter, React Native bridge) has been moved to the `secure-vault-mobile` repository.
+- **GitHub Release workflow**: Prebuilt binaries (.so for Android ABIs, .xcframework for iOS) are published as GitHub Release assets on tag push.
+- Build scripts updated to output only to `dist/` (removed jniLibs copy).
+- CI cleaned up: removed Android JNI integration tests and hardening workflow (now in mobile repo).
+
+### Added
+- `release.yml` workflow: builds and publishes Android + iOS binaries on `v*` tags.
+
 ## [1.0.0-ios] - 2026-03-06
 
 ### Added
