@@ -15,7 +15,6 @@ ABI_MAP_armv7_linux_androideabi="armeabi-v7a"
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist/android"
-JNILIBS_DIR="$ROOT_DIR/android/secure-core-android/src/main/jniLibs"
 
 echo "==> Checking ANDROID_NDK_HOME"
 if [ -z "${ANDROID_NDK_HOME:-}" ]; then
@@ -54,25 +53,8 @@ for target in "${TARGETS[@]}"; do
 done
 
 echo ""
-echo "==> Copying .so files to Android module jniLibs/"
-rm -rf "$JNILIBS_DIR"
-
-for target in "${TARGETS[@]}"; do
-    abi_var="ABI_MAP_${target//-/_}"
-    abi="${!abi_var}"
-
-    so_path="target/$target/release/libsecure_core.so"
-    if [ -f "$so_path" ]; then
-        mkdir -p "$JNILIBS_DIR/$abi"
-        cp "$so_path" "$JNILIBS_DIR/$abi/"
-        hash=$(sha256sum "$JNILIBS_DIR/$abi/libsecure_core.so" | cut -d' ' -f1)
-        echo "Copied libsecure_core.so to Android module — SHA256: $hash ($abi)"
-    fi
-done
-
-echo ""
 echo "==> SHA-256 checksums"
 find "$DIST_DIR" -name '*.so' -exec sha256sum {} \;
 
 echo ""
-echo "==> Done. Artifacts in $DIST_DIR/ and $JNILIBS_DIR/"
+echo "==> Done. Artifacts in $DIST_DIR/"

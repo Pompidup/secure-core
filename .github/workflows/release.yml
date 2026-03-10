@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-android:
+    name: Build Android (.so)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-linux-android
+            abi: arm64-v8a
+          - target: armv7-linux-androideabi
+            abi: armeabi-v7a
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Build .so
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export PATH="$TOOLCHAIN:$PATH"
+
+          mkdir -p .cargo
+          case "${{ matrix.target }}" in
+            aarch64-linux-android)
+              printf '[target.aarch64-linux-android]\nlinker = "aarch64-linux-android24-clang"\n' >> .cargo/config.toml
+              ;;
+            armv7-linux-androideabi)
+              printf '[target.armv7-linux-androideabi]\nlinker = "armv7a-linux-androideabi24-clang"\n' >> .cargo/config.toml
+              ;;
+          esac
+
+          cargo build --release --features jni --target ${{ matrix.target }}
+
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/libsecure_core.so dist/libsecure_core-${{ matrix.abi }}.so
+          sha256sum dist/libsecure_core-${{ matrix.abi }}.so > dist/libsecure_core-${{ matrix.abi }}.so.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.abi }}
+          path: dist/
+
+  build-ios:
+    name: Build iOS (.xcframework)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build xcframework
+        run: chmod +x scripts/build-ios.sh && ./scripts/build-ios.sh
+
+      - name: Package artifact
+        run: |
+          cd dist/ios
+          zip -r ../../secure_core.xcframework.zip secure_core.xcframework/
+          cd ../..
+          shasum -a 256 secure_core.xcframework.zip > secure_core.xcframework.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcframework
+          path: |
+            secure_core.xcframework.zip
+            secure_core.xcframework.zip.sha256
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-android, build-ios]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          cp artifacts/android-arm64-v8a/* release/
+          cp artifacts/android-armeabi-v7a/* release/
+          cp artifacts/ios-xcframework/* release/
+          # Also include the C header
+          cp include/secure_core.h release/
+          ls -la release/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "secure-core $TAG" \
+            --generate-notes \
+            release/*
