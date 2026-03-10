@@ -11,6 +11,7 @@ Pure Rust, bytes-in/bytes-out encryption core designed for mobile platforms (And
 - **Chunked streaming** for large files (64 KB chunks, constant memory usage)
 - **Custom `.enc` V1 format** with authenticated header (AAD)
 - **C-compatible FFI** for Kotlin/JNI and Swift integration
+- **Recovery** via passphrase-encrypted bundles (Argon2id)
 - **Zeroize on drop** for key material (`Dek` struct)
 - **No plaintext on disk** — guaranteed by design
 - **No secret logging** — only operation names and document IDs
@@ -37,9 +38,6 @@ println!("{} chunks, {} bytes", meta.chunks, meta.total_ciphertext_bytes);
 ## Architecture
 
 ```
-Platform (Kotlin / Swift)
-    |
-    v
 [FFI layer]  extern "C" functions
     |
     v
@@ -49,6 +47,7 @@ Platform (Kotlin / Swift)
     |-- format       .enc V1 header parsing
     |-- api          File-level encrypt/decrypt
     |-- metadata     DocumentMetadata, WrappedDek
+    |-- recovery     Passphrase-based recovery bundles (Argon2id)
     |-- validation   Input validation (DEK, nonce)
     |-- logging      Safe logging (no secrets)
     '-- ffi          C-compatible types & functions
@@ -71,8 +70,9 @@ cargo fmt --all -- --check
 # Benchmarks
 cargo bench
 
-# Android cross-compilation
+# Cross-compilation for mobile
 ./scripts/build-android.sh
+./scripts/build-ios.sh
 ```
 
 ## FFI usage
@@ -133,43 +133,46 @@ See [Security considerations](docs/security-considerations.md) and [Threat model
 |---|---|
 | [API overview](docs/api-overview.md) | Rust API, FFI API, format summary |
 | [FFI API reference](docs/ffi-api.md) | C function signatures, ownership rules |
+| [FFI ABI V1](docs/ffi-abi-v1.md) | ABI stability promises |
 | [`.enc` V1 format spec](docs/enc-format-v1.md) | Binary format specification |
 | [Platform contract](docs/platform-contract.md) | Core vs platform responsibilities |
+| [Recovery format V1](docs/recovery-format-v1.md) | Passphrase recovery bundle spec |
+| [Wraps schema V1](docs/wraps-schema-v1.md) | Wrapped DEK schema |
 | [Threat model](docs/threat-model.md) | Covered/uncovered threats |
 | [Security considerations](docs/security-considerations.md) | Nonce uniqueness, key handling, limits |
 | [Security audit V1](docs/security-audit-v1.md) | Pre-release audit results |
 | [Compatibility](docs/compatibility.md) | V1 forward-compat promise, V2 strategy |
-| [FAQ](docs/faq.md) | Common questions |
-| [Build Android](docs/build-android.md) | Cross-compilation setup |
+| [Compat promises](docs/compat-promises.md) | ABI/format stability guarantees |
+| [Build Android](docs/build-android.md) | Cross-compilation setup for Android |
+| [Build iOS](docs/build-ios.md) | Cross-compilation setup for iOS |
 | [ADR-001: Algorithm choice](docs/decisions/ADR-001-algo-choice.md) | Why AES-256-GCM |
 | [ADR-002: Streaming strategy](docs/decisions/ADR-002-streaming-strategy.md) | Why 64 KB chunks |
+| [FAQ](docs/faq.md) | Common questions |
 
 ## Project structure
 
 ```
 secure-core/
-  src/
-    lib.rs           Module declarations + crate docs
-    crypto.rs        AES-256-GCM, Dek, encrypt/decrypt
-    streaming.rs     Chunked streaming
-    format.rs        .enc V1 header
-    api.rs           File-level API
-    metadata.rs      DocumentMetadata, WrappedDek
-    validation.rs    Input validation
-    logging.rs       Safe logging
-    ffi/
-      mod.rs
-      types.rs       FfiBuffer, FfiResult, status codes
-      functions.rs   extern "C" functions
-  benches/
-    crypto_bench.rs  Criterion benchmarks
-  tests/
-    crypto_tests.rs, streaming_tests.rs, metadata_tests.rs,
-    ffi_tests.rs, validation_tests.rs
-docs/                Design docs, specs, ADRs
-scripts/             Android build scripts
-testdata/            Frozen reference blobs
+├── secure-core/           # Rust crate
+│   ├── src/               # Library source
+│   ├── tests/             # Integration tests
+│   └── benches/           # Criterion benchmarks
+├── ffi-harness/           # FFI test harness
+├── include/               # C header (secure_core.h)
+├── testdata/              # Golden files for V1 compat
+├── scripts/               # Build & CI scripts
+├── docs/                  # Technical documentation & ADRs
+├── Cargo.toml             # Workspace manifest
+└── rust-toolchain.toml    # Toolchain pinning
 ```
+
+## Consuming from mobile apps
+
+The CI publishes prebuilt binaries as GitHub Release assets:
+- **Android**: `libsecure_core.so` for `arm64-v8a` and `armeabi-v7a`
+- **iOS**: `secure_core.xcframework`
+
+Mobile app repos download these artifacts in their build scripts.
 
 ## License
 
