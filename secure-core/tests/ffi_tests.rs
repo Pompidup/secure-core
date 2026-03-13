@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 
 use secure_core::ffi::functions::*;
 use secure_core::ffi::types::*;
@@ -183,4 +183,101 @@ fn test_ffi_encrypt_empty_plaintext() {
         secure_core_free_result(enc_result);
         secure_core_free_result(dec_result);
     }
+}
+
+#[test]
+fn test_ffi_wrap_unwrap_dek_roundtrip() {
+    let dek = make_test_dek();
+    let passphrase = CString::new("test-passphrase-12345").unwrap();
+
+    // SAFETY: dek and passphrase are valid stack-allocated data.
+    let wrap_result = unsafe {
+        secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), passphrase.as_ptr())
+    };
+    assert_eq!(wrap_result.status, FFI_OK);
+    assert!(!wrap_result.data.ptr.is_null());
+    assert!(wrap_result.data.len > 0);
+
+    // Verify the output is valid JSON
+    let json = unsafe { std::slice::from_raw_parts(wrap_result.data.ptr, wrap_result.data.len) };
+    let json_str = std::str::from_utf8(json).expect("wrap output should be valid UTF-8");
+    assert!(json_str.contains("AES-256-GCM-ARGON2ID"));
+
+    // Unwrap the DEK
+    // SAFETY: wrap_result.data contains valid JSON bytes, passphrase is valid.
+    let unwrap_result = unsafe {
+        secure_core_unwrap_dek_with_passphrase(
+            wrap_result.data.ptr,
+            wrap_result.data.len,
+            passphrase.as_ptr(),
+        )
+    };
+    assert_eq!(unwrap_result.status, FFI_OK);
+    assert_eq!(unwrap_result.data.len, 32);
+
+    let unwrapped =
+        unsafe { std::slice::from_raw_parts(unwrap_result.data.ptr, unwrap_result.data.len) };
+    assert_eq!(unwrapped, &dek);
+
+    unsafe {
+        secure_core_free_result(wrap_result);
+        secure_core_free_result(unwrap_result);
+    }
+}
+
+#[test]
+fn test_ffi_unwrap_dek_wrong_passphrase() {
+    let dek = make_test_dek();
+    let passphrase = CString::new("correct-passphrase").unwrap();
+    let wrong_passphrase = CString::new("wrong-passphrase").unwrap();
+
+    let wrap_result = unsafe {
+        secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), passphrase.as_ptr())
+    };
+    assert_eq!(wrap_result.status, FFI_OK);
+
+    let unwrap_result = unsafe {
+        secure_core_unwrap_dek_with_passphrase(
+            wrap_result.data.ptr,
+            wrap_result.data.len,
+            wrong_passphrase.as_ptr(),
+        )
+    };
+    assert_eq!(unwrap_result.status, FFI_ERROR_CRYPTO);
+    assert!(!unwrap_result.error_msg.is_null());
+
+    unsafe {
+        secure_core_free_result(wrap_result);
+        secure_core_free_result(unwrap_result);
+    }
+}
+
+#[test]
+fn test_ffi_wrap_dek_invalid_params() {
+    let passphrase = CString::new("test").unwrap();
+
+    // Null DEK
+    let result =
+        unsafe { secure_core_wrap_dek_with_passphrase(std::ptr::null(), 32, passphrase.as_ptr()) };
+    assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    unsafe { secure_core_free_result(result) };
+
+    // Wrong DEK size
+    let short_dek = [0u8; 16];
+    let result = unsafe {
+        secure_core_wrap_dek_with_passphrase(
+            short_dek.as_ptr(),
+            short_dek.len(),
+            passphrase.as_ptr(),
+        )
+    };
+    assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    unsafe { secure_core_free_result(result) };
+
+    // Null passphrase
+    let dek = make_test_dek();
+    let result =
+        unsafe { secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), std::ptr::null()) };
+    assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    unsafe { secure_core_free_result(result) };
 }

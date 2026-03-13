@@ -12,6 +12,7 @@ use crate::ffi::types::{
     FFI_ERROR_CRYPTO, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM, FFI_ERROR_IO,
     FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK,
 };
+use crate::recovery;
 
 fn error_to_status(err: &SecureCoreError) -> i32 {
     match err {
@@ -183,6 +184,121 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
 
     match decrypt_bytes(&blob_bytes, &key) {
         Ok(plaintext) => make_native_result(&mut env, FFI_OK, Some(&plaintext), None),
+        Err(e) => {
+            let status = error_to_status(&e);
+            make_native_result(&mut env, status, None, Some(&e.to_string()))
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeWrapDekWithPassphrase<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    dek: JByteArray<'a>,
+    passphrase: JString<'a>,
+) -> JObject<'a> {
+    let dek_bytes = match env.convert_byte_array(&dek) {
+        Ok(b) => b,
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read dek"),
+            )
+        }
+    };
+
+    if dek_bytes.len() != 32 {
+        return make_native_result(
+            &mut env,
+            FFI_ERROR_INVALID_PARAM,
+            None,
+            Some(&format!(
+                "dek must be exactly 32 bytes, got {}",
+                dek_bytes.len()
+            )),
+        );
+    }
+
+    let passphrase_str: String = match env.get_string(&passphrase) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read passphrase"),
+            )
+        }
+    };
+
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&dek_bytes);
+
+    match recovery::wrap_dek_with_passphrase(&key, &passphrase_str) {
+        Ok(wrap) => match serde_json::to_vec(&wrap) {
+            Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
+            Err(e) => make_native_result(
+                &mut env,
+                FFI_ERROR_CRYPTO,
+                None,
+                Some(&format!("failed to serialize RecoveryWrap: {e}")),
+            ),
+        },
+        Err(e) => {
+            let status = error_to_status(&e);
+            make_native_result(&mut env, status, None, Some(&e.to_string()))
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPassphrase<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    recovery_wrap_json: JString<'a>,
+    passphrase: JString<'a>,
+) -> JObject<'a> {
+    let json_str: String = match env.get_string(&recovery_wrap_json) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read recoveryWrapJson"),
+            )
+        }
+    };
+
+    let passphrase_str: String = match env.get_string(&passphrase) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read passphrase"),
+            )
+        }
+    };
+
+    let wrap: recovery::RecoveryWrap = match serde_json::from_str(&json_str) {
+        Ok(w) => w,
+        Err(e) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some(&format!("invalid RecoveryWrap JSON: {e}")),
+            )
+        }
+    };
+
+    match recovery::unwrap_dek_with_passphrase(&wrap, &passphrase_str) {
+        Ok(dek) => make_native_result(&mut env, FFI_OK, Some(&dek), None),
         Err(e) => {
             let status = error_to_status(&e);
             make_native_result(&mut env, status, None, Some(&e.to_string()))

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::crypto::{decrypt_bytes, encrypt_bytes, Dek};
 use crate::ffi::types::{FfiBuffer, FfiResult};
+use crate::recovery;
 
 /// Returns the crate version as a null-terminated C string.
 ///
@@ -196,6 +197,85 @@ pub unsafe extern "C" fn secure_core_free_result(result: FfiResult) {
     if !result.error_msg.is_null() {
         // SAFETY: error_msg was allocated by CString::into_raw in FfiResult::from_error.
         drop(CString::from_raw(result.error_msg));
+    }
+}
+
+/// Wraps a DEK with a passphrase using Argon2id + AES-256-GCM.
+///
+/// Returns a JSON-encoded `RecoveryWrap` as bytes on success.
+///
+/// # Safety
+///
+/// - `dek_ptr` must point to exactly `dek_len` readable bytes.
+/// - `dek_len` must be 32.
+/// - `passphrase_ptr` must be a valid null-terminated UTF-8 C string.
+/// - The caller must free the returned `FfiResult` via `secure_core_free_result`.
+#[no_mangle]
+pub unsafe extern "C" fn secure_core_wrap_dek_with_passphrase(
+    dek_ptr: *const u8,
+    dek_len: usize,
+    passphrase_ptr: *const c_char,
+) -> FfiResult {
+    let Some(dek) = validate_dek(dek_ptr, dek_len) else {
+        return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
+    };
+
+    let Some(passphrase) = path_from_c_str(passphrase_ptr) else {
+        return FfiResult::invalid_param("passphrase must be a valid UTF-8 C string");
+    };
+
+    match recovery::wrap_dek_with_passphrase(dek.as_bytes(), passphrase) {
+        Ok(wrap) => match serde_json::to_vec(&wrap) {
+            Ok(json) => FfiResult::ok(json),
+            Err(e) => FfiResult::from_error(crate::error::SecureCoreError::CryptoError(format!(
+                "failed to serialize RecoveryWrap: {e}"
+            ))),
+        },
+        Err(e) => FfiResult::from_error(e),
+    }
+}
+
+/// Unwraps a DEK from a JSON-encoded RecoveryWrap using the passphrase.
+///
+/// Returns the 32-byte DEK on success.
+///
+/// # Safety
+///
+/// - `recovery_json_ptr` must point to `recovery_json_len` readable bytes of valid UTF-8 JSON.
+/// - `passphrase_ptr` must be a valid null-terminated UTF-8 C string.
+/// - The caller must free the returned `FfiResult` via `secure_core_free_result`.
+#[no_mangle]
+pub unsafe extern "C" fn secure_core_unwrap_dek_with_passphrase(
+    recovery_json_ptr: *const u8,
+    recovery_json_len: usize,
+    passphrase_ptr: *const c_char,
+) -> FfiResult {
+    if recovery_json_ptr.is_null() || recovery_json_len == 0 {
+        return FfiResult::invalid_param("recovery_json must be non-null and non-empty");
+    }
+
+    let Some(passphrase) = path_from_c_str(passphrase_ptr) else {
+        return FfiResult::invalid_param("passphrase must be a valid UTF-8 C string");
+    };
+
+    let json_bytes = std::slice::from_raw_parts(recovery_json_ptr, recovery_json_len);
+    let json_str = match std::str::from_utf8(json_bytes) {
+        Ok(s) => s,
+        Err(_) => return FfiResult::invalid_param("recovery_json must be valid UTF-8"),
+    };
+
+    let wrap: recovery::RecoveryWrap = match serde_json::from_str(json_str) {
+        Ok(w) => w,
+        Err(e) => {
+            return FfiResult::from_error(crate::error::SecureCoreError::InvalidFormat(format!(
+                "invalid RecoveryWrap JSON: {e}"
+            )))
+        }
+    };
+
+    match recovery::unwrap_dek_with_passphrase(&wrap, passphrase) {
+        Ok(dek) => FfiResult::ok(dek.to_vec()),
+        Err(e) => FfiResult::from_error(e),
     }
 }
 

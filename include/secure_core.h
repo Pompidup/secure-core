@@ -177,6 +177,52 @@ SecureCoreResult secure_core_decrypt_file(
 );
 
 /*
+ * Wraps a DEK with a passphrase using Argon2id + AES-256-GCM.
+ *
+ * Parameters:
+ *   dek_ptr        — pointer to the 32-byte Data Encryption Key (must not be NULL)
+ *   dek_len        — must be exactly 32
+ *   passphrase_ptr — null-terminated UTF-8 passphrase string
+ *
+ * Returns: SecureCoreResult with JSON-encoded RecoveryWrap in data.
+ *
+ * Ownership:
+ *   - dek_ptr: borrowed (read-only, caller retains ownership)
+ *   - passphrase_ptr: borrowed (read-only, caller retains ownership)
+ *   - return value: caller owns, MUST free via secure_core_free_result()
+ *
+ * Thread-safety: Safe to call from any thread. Argon2id derivation may block.
+ */
+SecureCoreResult secure_core_wrap_dek_with_passphrase(
+    const uint8_t *dek_ptr,
+    size_t         dek_len,
+    const char    *passphrase_ptr
+);
+
+/*
+ * Unwraps a DEK from a JSON-encoded RecoveryWrap using the passphrase.
+ *
+ * Parameters:
+ *   recovery_json_ptr — pointer to JSON bytes (must not be NULL)
+ *   recovery_json_len — length of the JSON bytes (must be > 0)
+ *   passphrase_ptr    — null-terminated UTF-8 passphrase string
+ *
+ * Returns: SecureCoreResult with 32-byte DEK in data.
+ *
+ * Ownership:
+ *   - recovery_json_ptr: borrowed (read-only, caller retains ownership)
+ *   - passphrase_ptr: borrowed (read-only, caller retains ownership)
+ *   - return value: caller owns, MUST free via secure_core_free_result()
+ *
+ * Thread-safety: Safe to call from any thread. Argon2id derivation may block.
+ */
+SecureCoreResult secure_core_unwrap_dek_with_passphrase(
+    const uint8_t *recovery_json_ptr,
+    size_t         recovery_json_len,
+    const char    *passphrase_ptr
+);
+
+/*
  * Frees a SecureCoreBuffer previously returned by Rust.
  *
  * After this call, buf.ptr is invalid and must not be dereferenced.
