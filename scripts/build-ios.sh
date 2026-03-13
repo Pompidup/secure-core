@@ -67,6 +67,18 @@ xcodebuild -create-xcframework \
     -headers "$INCLUDE_DIR" \
     -output "$XCFRAMEWORK_OUT"
 
+# ── Add module.modulemap for Swift import ────────────────────────────────
+
+echo "==> Adding module.modulemap to each slice"
+MODULEMAP_CONTENT='module secure_core {
+    header "secure_core.h"
+    export *
+}'
+for slice_dir in "$XCFRAMEWORK_OUT"/*/Headers; do
+    echo "$MODULEMAP_CONTENT" > "$slice_dir/module.modulemap"
+    echo "  Created modulemap in $(basename "$(dirname "$slice_dir")")"
+done
+
 # ── Checksums ────────────────────────────────────────────────────────────
 
 echo ""
