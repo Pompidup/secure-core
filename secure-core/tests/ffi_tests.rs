@@ -215,10 +215,9 @@ fn test_ffi_wrap_unwrap_dek_roundtrip() {
     assert_eq!(unwrap_result.status, FFI_OK);
     assert_eq!(unwrap_result.data.len, 32);
 
-    // SAFETY: unwrap_result.data.ptr is valid and points to unwrap_result.data.len bytes (status == OK).
-    let unwrapped = unsafe {
-        std::slice::from_raw_parts(unwrap_result.data.ptr, unwrap_result.data.len)
-    };
+    let unwrapped =
+        // SAFETY: unwrap_result.data.ptr is valid and points to unwrap_result.data.len bytes (status == OK).
+        unsafe { std::slice::from_raw_parts(unwrap_result.data.ptr, unwrap_result.data.len) };
     assert_eq!(unwrapped, &dek);
 
     // SAFETY: freeing results allocated by secure_core FFI; each result is used exactly once.
@@ -263,10 +262,9 @@ fn test_ffi_wrap_dek_invalid_params() {
     let passphrase = CString::new("test").unwrap();
 
     // Null DEK
-    // SAFETY: testing null-pointer handling; passphrase is valid.
-    let result = unsafe {
-        secure_core_wrap_dek_with_passphrase(std::ptr::null(), 32, passphrase.as_ptr())
-    };
+    let result =
+        // SAFETY: testing null-pointer handling; passphrase is valid.
+        unsafe { secure_core_wrap_dek_with_passphrase(std::ptr::null(), 32, passphrase.as_ptr()) };
     assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
     // SAFETY: freeing result allocated by secure_core FFI.
     unsafe { secure_core_free_result(result) };
@@ -287,10 +285,9 @@ fn test_ffi_wrap_dek_invalid_params() {
 
     // Null passphrase
     let dek = make_test_dek();
-    // SAFETY: testing null-passphrase handling; dek is valid.
-    let result = unsafe {
-        secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), std::ptr::null())
-    };
+    let result =
+        // SAFETY: testing null-passphrase handling; dek is valid.
+        unsafe { secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), std::ptr::null()) };
     assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
     // SAFETY: freeing result allocated by secure_core FFI.
     unsafe { secure_core_free_result(result) };
