@@ -198,7 +198,7 @@ fn test_ffi_wrap_unwrap_dek_roundtrip() {
     assert!(!wrap_result.data.ptr.is_null());
     assert!(wrap_result.data.len > 0);
 
-    // Verify the output is valid JSON
+    // SAFETY: wrap_result.data.ptr is valid and wrap_result.data.len bytes are initialized (status == OK).
     let json = unsafe { std::slice::from_raw_parts(wrap_result.data.ptr, wrap_result.data.len) };
     let json_str = std::str::from_utf8(json).expect("wrap output should be valid UTF-8");
     assert!(json_str.contains("AES-256-GCM-ARGON2ID"));
@@ -215,10 +215,13 @@ fn test_ffi_wrap_unwrap_dek_roundtrip() {
     assert_eq!(unwrap_result.status, FFI_OK);
     assert_eq!(unwrap_result.data.len, 32);
 
-    let unwrapped =
-        unsafe { std::slice::from_raw_parts(unwrap_result.data.ptr, unwrap_result.data.len) };
+    // SAFETY: unwrap_result.data.ptr is valid and points to unwrap_result.data.len bytes (status == OK).
+    let unwrapped = unsafe {
+        std::slice::from_raw_parts(unwrap_result.data.ptr, unwrap_result.data.len)
+    };
     assert_eq!(unwrapped, &dek);
 
+    // SAFETY: freeing results allocated by secure_core FFI; each result is used exactly once.
     unsafe {
         secure_core_free_result(wrap_result);
         secure_core_free_result(unwrap_result);
@@ -231,11 +234,13 @@ fn test_ffi_unwrap_dek_wrong_passphrase() {
     let passphrase = CString::new("correct-passphrase").unwrap();
     let wrong_passphrase = CString::new("wrong-passphrase").unwrap();
 
+    // SAFETY: dek and passphrase are valid stack-allocated data.
     let wrap_result = unsafe {
         secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), passphrase.as_ptr())
     };
     assert_eq!(wrap_result.status, FFI_OK);
 
+    // SAFETY: wrap_result.data contains valid JSON bytes, wrong_passphrase is valid.
     let unwrap_result = unsafe {
         secure_core_unwrap_dek_with_passphrase(
             wrap_result.data.ptr,
@@ -246,6 +251,7 @@ fn test_ffi_unwrap_dek_wrong_passphrase() {
     assert_eq!(unwrap_result.status, FFI_ERROR_CRYPTO);
     assert!(!unwrap_result.error_msg.is_null());
 
+    // SAFETY: freeing results allocated by secure_core FFI; each result is used exactly once.
     unsafe {
         secure_core_free_result(wrap_result);
         secure_core_free_result(unwrap_result);
@@ -257,13 +263,17 @@ fn test_ffi_wrap_dek_invalid_params() {
     let passphrase = CString::new("test").unwrap();
 
     // Null DEK
-    let result =
-        unsafe { secure_core_wrap_dek_with_passphrase(std::ptr::null(), 32, passphrase.as_ptr()) };
+    // SAFETY: testing null-pointer handling; passphrase is valid.
+    let result = unsafe {
+        secure_core_wrap_dek_with_passphrase(std::ptr::null(), 32, passphrase.as_ptr())
+    };
     assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    // SAFETY: freeing result allocated by secure_core FFI.
     unsafe { secure_core_free_result(result) };
 
     // Wrong DEK size
     let short_dek = [0u8; 16];
+    // SAFETY: short_dek and passphrase are valid stack-allocated data; testing validation of wrong size.
     let result = unsafe {
         secure_core_wrap_dek_with_passphrase(
             short_dek.as_ptr(),
@@ -272,12 +282,16 @@ fn test_ffi_wrap_dek_invalid_params() {
         )
     };
     assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    // SAFETY: freeing result allocated by secure_core FFI.
     unsafe { secure_core_free_result(result) };
 
     // Null passphrase
     let dek = make_test_dek();
-    let result =
-        unsafe { secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), std::ptr::null()) };
+    // SAFETY: testing null-passphrase handling; dek is valid.
+    let result = unsafe {
+        secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), std::ptr::null())
+    };
     assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    // SAFETY: freeing result allocated by secure_core FFI.
     unsafe { secure_core_free_result(result) };
 }
