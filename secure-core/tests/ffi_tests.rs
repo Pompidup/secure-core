@@ -258,6 +258,83 @@ fn test_ffi_unwrap_dek_wrong_passphrase() {
 }
 
 #[test]
+fn test_ffi_decrypt_truncated_blob() {
+    let plaintext = b"truncation test data for FFI";
+    let dek = make_test_dek();
+
+    // SAFETY: plaintext and dek are valid stack-allocated slices.
+    let enc_result = unsafe {
+        secure_core_encrypt_bytes(plaintext.as_ptr(), plaintext.len(), dek.as_ptr(), dek.len())
+    };
+    assert_eq!(enc_result.status, FFI_OK);
+
+    // Truncate the blob to half its length
+    let half_len = enc_result.data.len / 2;
+
+    // SAFETY: enc_result.data.ptr is valid for at least half_len bytes.
+    let dec_result = unsafe {
+        secure_core_decrypt_bytes(enc_result.data.ptr, half_len, dek.as_ptr(), dek.len())
+    };
+
+    // Truncation should yield either INVALID_FORMAT (header truncated) or CRYPTO (tag missing)
+    assert!(
+        dec_result.status == FFI_ERROR_INVALID_FORMAT || dec_result.status == FFI_ERROR_CRYPTO,
+        "expected INVALID_FORMAT (1) or CRYPTO (3), got {}",
+        dec_result.status
+    );
+    assert!(!dec_result.error_msg.is_null());
+
+    // SAFETY: Both results were returned by secure_core_* functions.
+    unsafe {
+        secure_core_free_result(enc_result);
+        secure_core_free_result(dec_result);
+    }
+}
+
+#[test]
+fn test_ffi_decrypt_wrong_dek() {
+    let plaintext = b"wrong key test via FFI";
+    let dek_a = make_test_dek();
+    let dek_b: [u8; 32] = [
+        0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8, 0xF7, 0xF6, 0xF5, 0xF4, 0xF3, 0xF2, 0xF1,
+        0xF0, 0xEF, 0xEE, 0xED, 0xEC, 0xEB, 0xEA, 0xE9, 0xE8, 0xE7, 0xE6, 0xE5, 0xE4, 0xE3, 0xE2,
+        0xE1, 0xE0,
+    ];
+
+    // Encrypt with DEK A
+    // SAFETY: plaintext and dek_a are valid stack-allocated slices.
+    let enc_result = unsafe {
+        secure_core_encrypt_bytes(
+            plaintext.as_ptr(),
+            plaintext.len(),
+            dek_a.as_ptr(),
+            dek_a.len(),
+        )
+    };
+    assert_eq!(enc_result.status, FFI_OK);
+
+    // Decrypt with DEK B (wrong key)
+    // SAFETY: enc_result.data is valid, dek_b is a valid 32-byte key.
+    let dec_result = unsafe {
+        secure_core_decrypt_bytes(
+            enc_result.data.ptr,
+            enc_result.data.len,
+            dek_b.as_ptr(),
+            dek_b.len(),
+        )
+    };
+
+    assert_eq!(dec_result.status, FFI_ERROR_CRYPTO);
+    assert!(!dec_result.error_msg.is_null());
+
+    // SAFETY: Both results were returned by secure_core_* functions.
+    unsafe {
+        secure_core_free_result(enc_result);
+        secure_core_free_result(dec_result);
+    }
+}
+
+#[test]
 fn test_ffi_wrap_dek_invalid_params() {
     let passphrase = CString::new("test").unwrap();
 

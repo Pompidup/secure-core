@@ -129,3 +129,27 @@ fn test_two_wraps_differ() {
     assert_ne!(wrap1.salt, wrap2.salt);
     assert_ne!(wrap1.iv, wrap2.iv);
 }
+
+#[test]
+fn test_unwrapped_dek_is_32_bytes() {
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let unwrapped = unwrap_dek_with_passphrase(&wrap, TEST_PASSPHRASE).unwrap();
+
+    // Dek is [u8; 32] so this is compile-time guaranteed, but assert explicitly
+    // to document the contract and catch any future type changes.
+    assert_eq!(unwrapped.len(), 32);
+    assert_eq!(unwrapped, TEST_DEK);
+}
+
+#[test]
+fn test_argon2id_params_in_json() {
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let json_str = serde_json::to_string(&wrap).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+    assert_eq!(parsed["algo"], "AES-256-GCM-ARGON2ID");
+    assert_eq!(parsed["kdf"], "argon2id-v19");
+    assert_eq!(parsed["kdf_params"]["m"], 65536);
+    assert_eq!(parsed["kdf_params"]["t"], 3);
+    assert_eq!(parsed["kdf_params"]["p"], 4);
+}
