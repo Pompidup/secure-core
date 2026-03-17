@@ -20,6 +20,8 @@ fn sample_metadata() -> DocumentMetadata {
         plaintext_size: Some(102400),
         ciphertext_size: 102816,
         content_hash: Some([0xAB; 32]),
+        tags: None,
+        folder_id: None,
         wrapped_dek: sample_envelope(),
     }
 }
@@ -208,6 +210,8 @@ fn test_metadata_optional_fields_omitted() {
         plaintext_size: None,
         ciphertext_size: 500,
         content_hash: None,
+        tags: None,
+        folder_id: None,
         wrapped_dek: sample_envelope(),
     };
 
@@ -252,4 +256,39 @@ fn test_metadata_validate_null_device_wrap() {
 
     let err = meta.validate().unwrap_err();
     assert!(matches!(err, SecureCoreError::InvalidParameter(_)));
+}
+
+// ── Tags round-trip tests ────────────────────────────────────────────
+
+#[test]
+fn test_metadata_tags_none_roundtrip() {
+    let meta = sample_metadata();
+    assert_eq!(meta.tags, None);
+    let json = serde_json::to_string(&meta).unwrap();
+    assert!(!json.contains("\"tags\""));
+    let deserialized: DocumentMetadata = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.tags, None);
+}
+
+#[test]
+fn test_metadata_tags_empty_roundtrip() {
+    let mut meta = sample_metadata();
+    meta.tags = Some(vec![]);
+    let json = serde_json::to_string(&meta).unwrap();
+    assert!(json.contains("\"tags\":[]"));
+    let deserialized: DocumentMetadata = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.tags, Some(vec![]));
+}
+
+#[test]
+fn test_metadata_tags_with_values_roundtrip() {
+    let mut meta = sample_metadata();
+    meta.tags = Some(vec!["Finance".into(), "2026".into()]);
+    let json = serde_json::to_string(&meta).unwrap();
+    assert!(json.contains("\"tags\":[\"Finance\",\"2026\"]"));
+    let deserialized: DocumentMetadata = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        deserialized.tags,
+        Some(vec!["Finance".into(), "2026".into()])
+    );
 }

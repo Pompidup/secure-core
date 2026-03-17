@@ -53,6 +53,8 @@ pub fn encrypt_file(
         plaintext_size: Some(stream_meta.total_plaintext_bytes),
         ciphertext_size,
         content_hash: None,
+        tags: None,
+        folder_id: None,
         wrapped_dek: WrapsEnvelope {
             schema_version: crate::metadata::WRAPS_SCHEMA_VERSION.to_string(),
             device: None,
