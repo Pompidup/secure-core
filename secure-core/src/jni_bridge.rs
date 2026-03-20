@@ -3,10 +3,13 @@
 //! Maps Kotlin `SecureCoreLib` native methods to the Rust crypto API.
 //! Enabled via the `jni` feature flag.
 
+use std::path::Path;
+
 use jni::objects::{JByteArray, JClass, JObject, JString, JValue};
 use jni::JNIEnv;
 
-use crate::crypto::{decrypt_bytes, encrypt_bytes};
+use crate::api;
+use crate::crypto::{decrypt_bytes, encrypt_bytes, Dek};
 use crate::error::SecureCoreError;
 use crate::ffi::types::{
     FFI_ERROR_CRYPTO, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM, FFI_ERROR_IO,
@@ -299,6 +302,166 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPass
 
     match recovery::unwrap_dek_with_passphrase(&wrap, &passphrase_str) {
         Ok(dek) => make_native_result(&mut env, FFI_OK, Some(&dek), None),
+        Err(e) => {
+            let status = error_to_status(&e);
+            make_native_result(&mut env, status, None, Some(&e.to_string()))
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptFile<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    input_path: JString<'a>,
+    output_path: JString<'a>,
+    dek: JByteArray<'a>,
+) -> JObject<'a> {
+    let dek_bytes = match env.convert_byte_array(&dek) {
+        Ok(b) => b,
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read dek"),
+            )
+        }
+    };
+
+    if dek_bytes.len() != 32 {
+        return make_native_result(
+            &mut env,
+            FFI_ERROR_INVALID_PARAM,
+            None,
+            Some(&format!(
+                "dek must be exactly 32 bytes, got {}",
+                dek_bytes.len()
+            )),
+        );
+    }
+
+    let input_str: String = match env.get_string(&input_path) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read inputPath"),
+            )
+        }
+    };
+
+    let output_str: String = match env.get_string(&output_path) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read outputPath"),
+            )
+        }
+    };
+
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&dek_bytes);
+
+    match api::encrypt_file(
+        Path::new(&input_str),
+        Path::new(&output_str),
+        &Dek::new(key),
+    ) {
+        Ok(result) => match serde_json::to_vec(&result.stream_metadata) {
+            Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
+            Err(e) => make_native_result(
+                &mut env,
+                FFI_ERROR_CRYPTO,
+                None,
+                Some(&format!("failed to serialize StreamMetadata: {e}")),
+            ),
+        },
+        Err(e) => {
+            let status = error_to_status(&e);
+            make_native_result(&mut env, status, None, Some(&e.to_string()))
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    input_path: JString<'a>,
+    output_path: JString<'a>,
+    dek: JByteArray<'a>,
+) -> JObject<'a> {
+    let dek_bytes = match env.convert_byte_array(&dek) {
+        Ok(b) => b,
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read dek"),
+            )
+        }
+    };
+
+    if dek_bytes.len() != 32 {
+        return make_native_result(
+            &mut env,
+            FFI_ERROR_INVALID_PARAM,
+            None,
+            Some(&format!(
+                "dek must be exactly 32 bytes, got {}",
+                dek_bytes.len()
+            )),
+        );
+    }
+
+    let input_str: String = match env.get_string(&input_path) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read inputPath"),
+            )
+        }
+    };
+
+    let output_str: String = match env.get_string(&output_path) {
+        Ok(s) => s.into(),
+        Err(_) => {
+            return make_native_result(
+                &mut env,
+                FFI_ERROR_INVALID_PARAM,
+                None,
+                Some("failed to read outputPath"),
+            )
+        }
+    };
+
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&dek_bytes);
+
+    match api::decrypt_file(
+        Path::new(&input_str),
+        Path::new(&output_str),
+        &Dek::new(key),
+    ) {
+        Ok(meta) => match serde_json::to_vec(&meta) {
+            Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
+            Err(e) => make_native_result(
+                &mut env,
+                FFI_ERROR_CRYPTO,
+                None,
+                Some(&format!("failed to serialize StreamMetadata: {e}")),
+            ),
+        },
         Err(e) => {
             let status = error_to_status(&e);
             make_native_result(&mut env, status, None, Some(&e.to_string()))

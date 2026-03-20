@@ -3,6 +3,8 @@ use std::io::{Read, Write};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 
+use serde::Serialize;
+
 use crate::crypto::{generate_nonce, Dek};
 use crate::error::SecureCoreError;
 use crate::format::EncHeader;
@@ -14,7 +16,7 @@ pub const CHUNK_SIZE: usize = 64 * 1024;
 const TAG_SIZE: usize = 16;
 
 /// Metadata returned after a streaming encrypt/decrypt operation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StreamMetadata {
     pub chunks: u32,
     pub total_plaintext_bytes: u64,
