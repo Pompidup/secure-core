@@ -9,11 +9,19 @@ use crate::validation::validate_dek;
 /// GCM auth tag size in bytes.
 const TAG_SIZE: usize = 16;
 
-/// Maximum plaintext size: ~4 GB on 64-bit, ~2 GB on 32-bit.
+/// Maximum plaintext size accepted by [`encrypt_bytes`]: 4 GiB on 64-bit
+/// targets, 2 GiB on 32-bit. This is a conservative cap well below the
+/// NIST SP 800-38D per-invocation limit for GCM (~64 GiB); it reflects the
+/// practical ceiling for in-memory operations on mobile devices.
+///
+/// For plaintexts that exceed this bound, use
+/// [`streaming::encrypt_stream`](crate::streaming::encrypt_stream), which
+/// processes 64 KiB chunks and can handle up to
+/// [`streaming::MAX_STREAM_PLAINTEXT_SIZE`](crate::streaming::MAX_STREAM_PLAINTEXT_SIZE).
 #[cfg(target_pointer_width = "64")]
-const MAX_PLAINTEXT_SIZE: usize = 4 * 1024 * 1024 * 1024;
+pub const MAX_PLAINTEXT_SIZE: usize = 4 * 1024 * 1024 * 1024;
 #[cfg(not(target_pointer_width = "64"))]
-const MAX_PLAINTEXT_SIZE: usize = 2 * 1024 * 1024 * 1024;
+pub const MAX_PLAINTEXT_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
 /// A Data Encryption Key that is zeroized on drop.
 ///
@@ -66,6 +74,9 @@ pub fn generate_nonce() -> [u8; 12] {
 }
 
 /// Encrypts plaintext and returns a complete `.enc` V1 blob (header + ciphertext + tag).
+///
+/// Rejects any plaintext larger than [`MAX_PLAINTEXT_SIZE`]; use
+/// [`crate::streaming::encrypt_stream`] for larger payloads.
 pub fn encrypt_bytes(plaintext: &[u8], dek: &[u8; 32]) -> Result<Vec<u8>, SecureCoreError> {
     validate_dek(dek)?;
     encrypt_bytes_with_nonce(plaintext, dek, generate_nonce())
