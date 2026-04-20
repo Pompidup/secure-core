@@ -335,6 +335,39 @@ fn test_ffi_decrypt_wrong_dek() {
 }
 
 #[test]
+fn test_ffi_error_message_with_embedded_nul_is_sanitized() {
+    use secure_core::error::SecureCoreError;
+
+    // An error message crafted to include a NUL byte — could happen when a
+    // message embeds attacker-controlled data that slipped through. The
+    // previous CString::new(msg).unwrap_or_default() produced an EMPTY C
+    // string here, discarding all diagnostic context. Sanitization must
+    // preserve the message on both sides of the NUL.
+    let err = SecureCoreError::InvalidParameter("prefix\0-suffix-with-details".into());
+    let result = FfiResult::from_error(err);
+
+    assert_eq!(result.status, FFI_ERROR_INVALID_PARAM);
+    assert!(
+        !result.error_msg.is_null(),
+        "error_msg must be non-null even if message contained a NUL byte"
+    );
+
+    // SAFETY: error_msg was allocated by CString::into_raw in FfiResult::from_error.
+    let msg = unsafe { CStr::from_ptr(result.error_msg) }
+        .to_str()
+        .expect("sanitized msg should be valid UTF-8");
+    assert!(!msg.is_empty(), "sanitized message should not be empty");
+    assert!(msg.contains("prefix"), "prefix must survive: {msg}");
+    assert!(
+        msg.contains("suffix-with-details"),
+        "content after NUL must survive sanitization: {msg}"
+    );
+
+    // SAFETY: result was built by FfiResult::from_error and owns its error_msg.
+    unsafe { secure_core_free_result(result) };
+}
+
+#[test]
 fn test_ffi_wrap_dek_invalid_params() {
     let passphrase = CString::new("test").unwrap();
 

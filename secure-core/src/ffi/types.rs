@@ -83,16 +83,29 @@ impl FfiResult {
             SecureCoreError::InvalidParameter(_) => (FFI_ERROR_INVALID_PARAM, err.to_string()),
         };
 
-        let c_msg = CString::new(msg).unwrap_or_default().into_raw();
-
         Self {
             status,
             data: FfiBuffer::empty(),
-            error_msg: c_msg,
+            error_msg: sanitize_to_cstring(msg).into_raw(),
         }
     }
 
     pub fn invalid_param(msg: &str) -> Self {
         Self::from_error(SecureCoreError::InvalidParameter(msg.into()))
     }
+}
+
+/// Builds a `CString` from an error message, replacing any embedded NUL byte
+/// with `?` so construction never fails. Without this, `CString::new` would
+/// return `Err` and the old `.unwrap_or_default()` silently produced an empty
+/// C string, destroying all diagnostic context (notably error paths that
+/// could contain caller-controlled bytes).
+fn sanitize_to_cstring(msg: String) -> CString {
+    let bytes: Vec<u8> = msg
+        .into_bytes()
+        .into_iter()
+        .map(|b| if b == 0 { b'?' } else { b })
+        .collect();
+    // No NUL bytes remain, so this cannot fail.
+    CString::new(bytes).expect("NUL bytes were replaced above")
 }
