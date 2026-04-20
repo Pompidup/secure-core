@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **`Dek` inner field is now private.** Previously `pub struct Dek(pub [u8; 32])`, now `pub struct Dek([u8; 32])`. Access the bytes via `Dek::as_bytes()`. This removes a footgun where callers could read the key without going through the typed accessor. No FFI/ABI impact (the type is Rust-internal).
 - `ffi/functions.rs` and `jni_bridge.rs` now build `Dek` via `Dek::take(&mut key)` across all code paths (encrypt/decrypt bytes, wrap-dek-with-passphrase, encrypt/decrypt file) so the transient 32-byte stack buffer is zeroed immediately after construction.
+- **`api::encrypt_file` now returns `PartialDocumentMetadata`, not `DocumentMetadata`.** The old result stamped `doc_id: ""` and `wrapped_dek.device: None` as placeholders — a footgun where forgetting to replace them would pass `validate()` only at runtime. The new `PartialDocumentMetadata` type simply does not carry those fields; callers must call `.finalize(doc_id, wrapped_dek)` to obtain a `DocumentMetadata`, which is enforced at compile time. `EncryptResult.document_metadata` was renamed to `EncryptResult.partial_metadata`. FFI/JNI ABI unchanged (neither boundary ever serialized `document_metadata`).
 
 ### Security
 - Mitigates a silent-truncation attack on streaming `.enc` files: previously, an attacker who stripped the final chunk of a streamed blob would see `decrypt_stream` return success with a shortened plaintext. V1.1 blobs now detect this.

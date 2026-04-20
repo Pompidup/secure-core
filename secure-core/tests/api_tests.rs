@@ -132,18 +132,48 @@ fn test_api_encrypt_result_metadata() {
 
     // Ciphertext includes header + nonce + chunk length + ciphertext + GCM tag
     assert!(
-        enc_result.document_metadata.ciphertext_size > 1024,
+        enc_result.partial_metadata.ciphertext_size > 1024,
         "ciphertext_size ({}) should exceed plaintext_size (1024)",
-        enc_result.document_metadata.ciphertext_size
+        enc_result.partial_metadata.ciphertext_size
     );
 
-    assert_eq!(enc_result.document_metadata.plaintext_size, Some(1024));
+    assert_eq!(enc_result.partial_metadata.plaintext_size, Some(1024));
 
     // Filename should be extracted from the temp file path
     assert!(
-        !enc_result.document_metadata.filename.is_empty(),
+        !enc_result.partial_metadata.filename.is_empty(),
         "filename should not be empty"
     );
+}
+
+#[test]
+fn test_api_partial_metadata_finalize_yields_valid_document() {
+    use secure_core::metadata::WrapsEnvelope;
+
+    let dek = Dek::new(TEST_KEY);
+    let plaintext = random_bytes(2048);
+
+    let input_file = write_temp_file(&plaintext);
+    let encrypted_file = NamedTempFile::new().unwrap();
+
+    let enc_result = encrypt_file(input_file.path(), encrypted_file.path(), &dek).unwrap();
+
+    let envelope = WrapsEnvelope::new_device(
+        "AES-256-GCM-KEYSTORE".into(),
+        "secure_core_master_key_v1".into(),
+        vec![0xA0; 12],
+        vec![0xB0; 16],
+        vec![0x01, 0x02, 0x03, 0x04],
+    );
+
+    let doc = enc_result
+        .partial_metadata
+        .finalize("550e8400-e29b-41d4-a716-446655440000".into(), envelope);
+
+    assert_eq!(doc.doc_id, "550e8400-e29b-41d4-a716-446655440000");
+    assert_eq!(doc.plaintext_size, Some(2048));
+    assert!(!doc.filename.is_empty());
+    doc.validate().expect("finalized document must validate");
 }
 
 #[test]
