@@ -4,25 +4,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::crypto::Dek;
 use crate::error::SecureCoreError;
-use crate::metadata::{DocumentMetadata, WrapsEnvelope};
+use crate::metadata::PartialDocumentMetadata;
 use crate::streaming::{decrypt_stream, encrypt_stream, StreamMetadata};
 
 /// Result of a file encryption operation.
 ///
-/// Contains the streaming metadata and a partial [`DocumentMetadata`]
-/// pre-filled with everything the core knows. The caller (platform) must
-/// supply `doc_id`, `wrapped_dek`, and optionally `content_hash`.
+/// Contains the streaming metadata and a [`PartialDocumentMetadata`] holding
+/// everything the core can compute on its own. The caller (platform) must
+/// call [`PartialDocumentMetadata::finalize`] with its `doc_id` and the
+/// `wrapped_dek` produced by the OS keystore to obtain a complete
+/// `DocumentMetadata`.
 #[derive(Debug)]
 pub struct EncryptResult {
     pub stream_metadata: StreamMetadata,
-    pub document_metadata: DocumentMetadata,
+    pub partial_metadata: PartialDocumentMetadata,
 }
 
 /// Encrypts a file at `input_path` and writes the encrypted output to `output_path`.
 ///
-/// Returns an [`EncryptResult`] containing a partial [`DocumentMetadata`].
-/// The `wrapped_dek` field is set to a placeholder — the platform must replace it
-/// with the actual wrapped DEK from the OS keystore.
+/// Returns an [`EncryptResult`]. The caller must finalize the
+/// [`PartialDocumentMetadata`] with its `doc_id` and `wrapped_dek` before
+/// persisting anything — the types enforce this at compile time.
 pub fn encrypt_file(
     input_path: &Path,
     output_path: &Path,
@@ -45,8 +47,7 @@ pub fn encrypt_file(
         .unwrap_or_default()
         .as_secs();
 
-    let doc_metadata = DocumentMetadata {
-        doc_id: String::new(),
+    let partial = PartialDocumentMetadata {
         filename,
         mime_type: None,
         created_at,
@@ -55,16 +56,11 @@ pub fn encrypt_file(
         content_hash: None,
         tags: None,
         folder_id: None,
-        wrapped_dek: WrapsEnvelope {
-            schema_version: crate::metadata::WRAPS_SCHEMA_VERSION.to_string(),
-            device: None,
-            recovery: None,
-        },
     };
 
     Ok(EncryptResult {
         stream_metadata: stream_meta,
-        document_metadata: doc_metadata,
+        partial_metadata: partial,
     })
 }
 

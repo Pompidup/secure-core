@@ -60,6 +60,47 @@ pub struct DocumentMetadata {
     pub wrapped_dek: WrapsEnvelope,
 }
 
+/// Metadata that the core can produce at encrypt time, missing the two
+/// fields that only the platform can supply: `doc_id` (assigned by the
+/// app's data layer) and `wrapped_dek` (produced by the OS keystore).
+///
+/// The type is deliberately distinct from [`DocumentMetadata`] so that a
+/// caller cannot forget to attach those fields before persistence — the
+/// compiler requires [`Self::finalize`] to be called before a
+/// `DocumentMetadata` exists. This closes the former footgun where
+/// `api::encrypt_file` returned a `DocumentMetadata` with `doc_id: ""`
+/// and `wrapped_dek.device: None` as placeholders.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartialDocumentMetadata {
+    pub filename: String,
+    pub mime_type: Option<String>,
+    pub created_at: u64,
+    pub plaintext_size: Option<u64>,
+    pub ciphertext_size: u64,
+    pub content_hash: Option<[u8; 32]>,
+    pub tags: Option<Vec<String>>,
+    pub folder_id: Option<String>,
+}
+
+impl PartialDocumentMetadata {
+    /// Attaches the platform-supplied `doc_id` and `wrapped_dek` to produce a
+    /// complete [`DocumentMetadata`]. Consumes `self`.
+    pub fn finalize(self, doc_id: String, wrapped_dek: WrapsEnvelope) -> DocumentMetadata {
+        DocumentMetadata {
+            doc_id,
+            filename: self.filename,
+            mime_type: self.mime_type,
+            created_at: self.created_at,
+            plaintext_size: self.plaintext_size,
+            ciphertext_size: self.ciphertext_size,
+            content_hash: self.content_hash,
+            tags: self.tags,
+            folder_id: self.folder_id,
+            wrapped_dek,
+        }
+    }
+}
+
 /// Metadata for a virtual folder in the vault.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FolderMetadata {

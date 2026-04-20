@@ -83,10 +83,13 @@ println!("Encrypted {} chunks", meta.chunks);
 ```rust
 pub struct EncryptResult {
     pub stream_metadata: StreamMetadata,
-    pub document_metadata: DocumentMetadata,
+    /// Partial metadata — missing `doc_id` and `wrapped_dek`, which the
+    /// platform must supply via `PartialDocumentMetadata::finalize`.
+    pub partial_metadata: PartialDocumentMetadata,
 }
 
-/// Encrypts a file. Returns streaming metadata + partial document metadata.
+/// Encrypts a file. The caller must call `partial_metadata.finalize(doc_id,
+/// wrapped_dek)` to obtain a complete `DocumentMetadata` before persistence.
 pub fn encrypt_file(
     input_path: &Path, output_path: &Path, dek: &Dek,
 ) -> Result<EncryptResult, SecureCoreError>;
@@ -95,6 +98,17 @@ pub fn encrypt_file(
 pub fn decrypt_file(
     input_path: &Path, output_path: &Path, dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError>;
+```
+
+**Example** (typical platform flow):
+
+```rust
+let result = encrypt_file(&in_path, &out_path, &dek)?;
+let doc_id = uuid::Uuid::new_v4().to_string();
+let wrapped_dek = keystore.wrap(&dek)?;   // produced by the platform
+let document = result.partial_metadata.finalize(doc_id, wrapped_dek);
+document.validate()?;
+db.insert(document)?;
 ```
 
 ### Module `metadata`
