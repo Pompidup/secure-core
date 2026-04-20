@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Public size limits.** `crypto::MAX_PLAINTEXT_SIZE` (formerly private) and the new `streaming::MAX_STREAM_PLAINTEXT_SIZE` are both exposed. Doc-comments and `docs/enc-format-v1.md` now cross-reference them so callers can pick the right API for their payload size (in-memory vs streaming). A sanity test asserts the in-memory limit stays strictly below the streaming limit to prevent future drift.
 - **Parser robustness test suite** (`tests/parser_robustness.rs`). Fuzz-lite, no new dep: 8 tests feed `EncHeader::from_bytes`, `decrypt_bytes`, `decrypt_stream` with seeded random bytes, exhaustive bit-flips of valid blobs, every truncation prefix, and pathological streaming length prefixes. Asserts no panic / abort / UB across ~6 000 hostile inputs per run. Seeded for reproducibility.
 
+### Removed
+- `tests/generate_reference.rs`. Its sole output, `testdata/v1_reference.enc`, is now produced by `tests/generate_compat_pack.rs` alongside the compat pack. One binary, one command (`cargo test --test generate_compat_pack --features _test-vectors -- --ignored`) to rebuild every committed test fixture. The produced `v1_reference.enc` is byte-for-byte identical; regression tests in `crypto_tests.rs` are unchanged.
+
 ### Changed
 - **`Dek` inner field is now private.** Previously `pub struct Dek(pub [u8; 32])`, now `pub struct Dek([u8; 32])`. Access the bytes via `Dek::as_bytes()`. This removes a footgun where callers could read the key without going through the typed accessor. No FFI/ABI impact (the type is Rust-internal).
 - `ffi/functions.rs` and `jni_bridge.rs` now build `Dek` via `Dek::take(&mut key)` across all code paths (encrypt/decrypt bytes, wrap-dek-with-passphrase, encrypt/decrypt file) so the transient 32-byte stack buffer is zeroed immediately after construction.
