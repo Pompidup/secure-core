@@ -8,6 +8,8 @@ use std::path::Path;
 use jni::objects::{JByteArray, JClass, JObject, JString, JValue};
 use jni::JNIEnv;
 
+use zeroize::Zeroizing;
+
 use crate::api;
 use crate::crypto::{decrypt_bytes, encrypt_bytes, Dek};
 use crate::error::SecureCoreError;
@@ -247,8 +249,10 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeWrapDekWithPassph
         );
     }
 
-    let passphrase_str: String = match env.get_string(&passphrase) {
-        Ok(s) => s.into(),
+    // Zeroizing wipes the heap buffer on drop so the passphrase does not
+    // linger in freed memory after this native call returns.
+    let passphrase_str: Zeroizing<String> = match env.get_string(&passphrase) {
+        Ok(s) => Zeroizing::new(s.into()),
         Err(_) => {
             return make_native_result(
                 &mut env,
@@ -299,8 +303,10 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPass
         }
     };
 
-    let passphrase_str: String = match env.get_string(&passphrase) {
-        Ok(s) => s.into(),
+    // Zeroizing wipes the heap buffer on drop so the passphrase does not
+    // linger in freed memory after this native call returns.
+    let passphrase_str: Zeroizing<String> = match env.get_string(&passphrase) {
+        Ok(s) => Zeroizing::new(s.into()),
         Err(_) => {
             return make_native_result(
                 &mut env,

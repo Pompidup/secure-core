@@ -56,6 +56,15 @@ Use `Dek::new(key)` only when the source is not sensitive (test vectors, constan
 
 `jni_bridge.rs` must not panic across the FFI boundary — doing so unwinds Rust into the JVM and aborts the Android process. Every fallible JNI call (`find_class`, `new_byte_array`, `new_string`, `new_object`, …) returns early with a null `JObject` (or equivalent) on failure. The pending JVM exception (`OutOfMemoryError`, `NoClassDefFoundError`, …) then surfaces to Kotlin on native-method return, giving the app a chance to degrade gracefully instead of dying.
 
+### Passphrase handling
+
+`recovery::wrap_dek_with_passphrase` and `recovery::unwrap_dek_with_passphrase` take `&str` — they borrow, never own. The caller keeps control of the passphrase buffer and is responsible for its lifecycle.
+
+- **C FFI path** (`ffi/functions.rs`): the passphrase `&str` is borrowed via `CStr::from_ptr` directly from the caller's `const char*`. Nothing is copied on the Rust side; zeroizing the original C string is the caller's responsibility (platform contract).
+- **JNI path** (`jni_bridge.rs`): `env.get_string(&passphrase)` materializes the JVM `String` into a fresh **Rust-owned** `String` on the heap. That allocation is wrapped in `zeroize::Zeroizing<String>`, so its backing buffer is overwritten with zeros on drop — the passphrase does not linger in freed Rust memory after the native call returns. The JVM's own `String` remains under Kotlin's control; the platform layer should call `CharArray.fill('\u0000')` or equivalent on its source buffer to close the remaining window.
+
+What we cannot control: once a passphrase is fed to Argon2id (`argon2::Argon2::hash_password_into`), the third-party crate owns its working memory. Its zeroization of internal state is outside this crate's contract.
+
 ### Key validation
 
 - `validate_dek()` rejects keys that are not exactly 32 bytes.
