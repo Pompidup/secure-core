@@ -7,13 +7,27 @@ use serde::Serialize;
 
 use crate::crypto::{generate_nonce, Dek};
 use crate::error::SecureCoreError;
-use crate::format::EncHeader;
+use crate::format::{EncHeader, FLAG_STREAM_FINAL_CHUNK};
 
 /// Default chunk size: 64 KB of plaintext per chunk.
 pub const CHUNK_SIZE: usize = 64 * 1024;
 
 /// GCM auth tag size in bytes.
 const TAG_SIZE: usize = 16;
+
+/// High bit of the 4-byte AAD that marks the final chunk in a V1.1 stream.
+/// The bit is reserved; valid chunk indices are in `0..LAST_CHUNK_AAD_MARKER`.
+const LAST_CHUNK_AAD_MARKER: u32 = 0x8000_0000;
+
+/// Maximum chunk index permitted in a V1.1 stream (top bit reserved as marker).
+pub const MAX_STREAM_CHUNKS: u32 = LAST_CHUNK_AAD_MARKER - 1;
+
+/// Builds the per-chunk AAD. In legacy (V1.0) streams, `is_last` is always `false`
+/// so the result is `chunk_index.to_be_bytes()` — identical to the pre-flag format.
+fn aad_for_chunk(chunk_index: u32, is_last: bool) -> [u8; 4] {
+    let marker = if is_last { LAST_CHUNK_AAD_MARKER } else { 0 };
+    (chunk_index | marker).to_be_bytes()
+}
 
 /// Metadata returned after a streaming encrypt/decrypt operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -36,16 +50,38 @@ fn nonce_for_chunk(base_nonce: &[u8; 12], chunk_index: u32) -> [u8; 12] {
 
 /// Encrypts data from `input` into `output` using chunked AES-256-GCM.
 ///
-/// Writes a V1 header followed by individually encrypted chunks.
-/// Each chunk is `CHUNK_SIZE` bytes of plaintext (last chunk may be smaller),
-/// encrypted with a nonce derived from the header's base nonce + chunk index.
+/// Writes a V1 header with [`FLAG_STREAM_FINAL_CHUNK`] set, followed by
+/// individually encrypted chunks. The last chunk is authenticated with a
+/// marker bit in its AAD so decrypt can prove the stream was not truncated.
 pub fn encrypt_stream<R: Read, W: Write>(
+    input: R,
+    output: W,
+    dek: &Dek,
+) -> Result<StreamMetadata, SecureCoreError> {
+    encrypt_stream_impl(input, output, dek, true)
+}
+
+/// Legacy V1 encoder (no final-chunk marker). Only exposed for compat tests.
+#[cfg(any(test, feature = "_test-vectors"))]
+pub fn encrypt_stream_legacy_v1_test<R: Read, W: Write>(
+    input: R,
+    output: W,
+    dek: &Dek,
+) -> Result<StreamMetadata, SecureCoreError> {
+    encrypt_stream_impl(input, output, dek, false)
+}
+
+fn encrypt_stream_impl<R: Read, W: Write>(
     mut input: R,
     mut output: W,
     dek: &Dek,
+    with_final_flag: bool,
 ) -> Result<StreamMetadata, SecureCoreError> {
     let base_nonce = generate_nonce();
-    let header = EncHeader::new_v1(base_nonce);
+    let mut header = EncHeader::new_v1(base_nonce);
+    if with_final_flag {
+        header.flags |= FLAG_STREAM_FINAL_CHUNK;
+    }
     let header_bytes = header.to_bytes();
 
     output.write_all(&header_bytes)?;
@@ -54,47 +90,60 @@ pub fn encrypt_stream<R: Read, W: Write>(
         .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
 
     let mut buf = vec![0u8; CHUNK_SIZE];
+    let mut pending: Option<Vec<u8>> = None;
     let mut chunk_index: u32 = 0;
     let mut total_plaintext: u64 = 0;
     let mut total_ciphertext: u64 = header_bytes.len() as u64;
+    let mut first_iter = true;
 
     loop {
         let bytes_read = read_exact_or_eof(&mut input, &mut buf)?;
-        if bytes_read == 0 && chunk_index > 0 {
+
+        // EOF reached after having buffered at least one chunk: exit and
+        // finalize the pending chunk as the last one.
+        if bytes_read == 0 && !first_iter {
             break;
         }
 
-        let chunk_nonce = nonce_for_chunk(&base_nonce, chunk_index);
-        let gcm_nonce = Nonce::from_slice(&chunk_nonce);
+        // Flush the previously buffered chunk as non-final now that a new one
+        // has arrived behind it.
+        if let Some(prev) = pending.take() {
+            write_chunk(
+                &cipher,
+                &base_nonce,
+                chunk_index,
+                false,
+                &prev,
+                &mut output,
+                &mut total_plaintext,
+                &mut total_ciphertext,
+            )?;
+            chunk_index = checked_next_index(chunk_index)?;
+        }
 
-        // AAD includes chunk index to prevent reordering
-        let aad = chunk_index.to_be_bytes();
-        let ciphertext_with_tag = cipher
-            .encrypt(
-                gcm_nonce,
-                aes_gcm::aead::Payload {
-                    msg: &buf[..bytes_read],
-                    aad: &aad,
-                },
-            )
-            .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
-
-        // Write chunk length (u32 LE) + ciphertext + tag
-        let chunk_len = ciphertext_with_tag.len() as u32;
-        output.write_all(&chunk_len.to_le_bytes())?;
-        output.write_all(&ciphertext_with_tag)?;
-
-        total_plaintext += bytes_read as u64;
-        total_ciphertext += 4 + ciphertext_with_tag.len() as u64;
-
-        chunk_index = chunk_index
-            .checked_add(1)
-            .ok_or_else(|| SecureCoreError::InvalidParameter("too many chunks".into()))?;
+        pending = Some(buf[..bytes_read].to_vec());
+        first_iter = false;
 
         if bytes_read < CHUNK_SIZE {
             break;
         }
     }
+
+    // Flush the final buffered chunk with the terminal marker (or without it
+    // in legacy mode). `pending` is always `Some` here: either we buffered a
+    // real chunk, or we buffered an empty vec for the empty-input case.
+    let final_chunk = pending.expect("pending chunk always set before final flush");
+    write_chunk(
+        &cipher,
+        &base_nonce,
+        chunk_index,
+        with_final_flag,
+        &final_chunk,
+        &mut output,
+        &mut total_plaintext,
+        &mut total_ciphertext,
+    )?;
+    chunk_index = checked_next_index(chunk_index)?;
 
     output.flush()?;
 
@@ -105,7 +154,57 @@ pub fn encrypt_stream<R: Read, W: Write>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn write_chunk<W: Write>(
+    cipher: &Aes256Gcm,
+    base_nonce: &[u8; 12],
+    chunk_index: u32,
+    is_last: bool,
+    plaintext: &[u8],
+    output: &mut W,
+    total_plaintext: &mut u64,
+    total_ciphertext: &mut u64,
+) -> Result<(), SecureCoreError> {
+    let chunk_nonce = nonce_for_chunk(base_nonce, chunk_index);
+    let gcm_nonce = Nonce::from_slice(&chunk_nonce);
+    let aad = aad_for_chunk(chunk_index, is_last);
+
+    let ciphertext_with_tag = cipher
+        .encrypt(
+            gcm_nonce,
+            aes_gcm::aead::Payload {
+                msg: plaintext,
+                aad: &aad,
+            },
+        )
+        .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
+
+    let chunk_len = ciphertext_with_tag.len() as u32;
+    output.write_all(&chunk_len.to_le_bytes())?;
+    output.write_all(&ciphertext_with_tag)?;
+
+    *total_plaintext += plaintext.len() as u64;
+    *total_ciphertext += 4 + ciphertext_with_tag.len() as u64;
+    Ok(())
+}
+
+fn checked_next_index(current: u32) -> Result<u32, SecureCoreError> {
+    let next = current
+        .checked_add(1)
+        .ok_or_else(|| SecureCoreError::InvalidParameter("too many chunks".into()))?;
+    if next > MAX_STREAM_CHUNKS {
+        return Err(SecureCoreError::InvalidParameter(format!(
+            "too many chunks: limit is {MAX_STREAM_CHUNKS}"
+        )));
+    }
+    Ok(next)
+}
+
 /// Decrypts chunked data from `input` into `output`.
+///
+/// If the header carries [`FLAG_STREAM_FINAL_CHUNK`], the stream is treated
+/// as V1.1 and truncation at the end is detected via the terminal AAD marker.
+/// Otherwise, the legacy V1.0 layout is accepted for backward compatibility.
 pub fn decrypt_stream<R: Read, W: Write>(
     mut input: R,
     mut output: W,
@@ -118,6 +217,7 @@ pub fn decrypt_stream<R: Read, W: Write>(
 
     let header = EncHeader::from_bytes(&header_buf)?;
     let base_nonce = header.nonce;
+    let expects_final_marker = header.flags & FLAG_STREAM_FINAL_CHUNK != 0;
 
     let cipher = Aes256Gcm::new_from_slice(dek.as_bytes())
         .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
@@ -126,13 +226,43 @@ pub fn decrypt_stream<R: Read, W: Write>(
     let mut total_plaintext: u64 = 0;
     let mut total_ciphertext: u64 = header_buf.len() as u64;
 
+    // Buffer the most recently read chunk; we only know it's final once the
+    // next length-prefix read hits EOF. This lets us apply the right AAD.
+    let mut pending: Option<Vec<u8>> = None;
+
     loop {
-        // Read chunk length (u32 LE)
         let mut len_buf = [0u8; 4];
-        match input.read_exact(&mut len_buf) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+        let read_next = match input.read_exact(&mut len_buf) {
+            Ok(()) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => false,
             Err(e) => return Err(e.into()),
+        };
+
+        if !read_next {
+            // Stream exhausted. If we had a buffered chunk, decrypt it as the
+            // final chunk; otherwise the input contained no chunks at all.
+            match pending.take() {
+                Some(buf) => {
+                    let plaintext = decrypt_chunk(
+                        &cipher,
+                        &base_nonce,
+                        chunk_index,
+                        expects_final_marker,
+                        &buf,
+                    )?;
+                    output.write_all(&plaintext)?;
+                    total_plaintext += plaintext.len() as u64;
+                    chunk_index = checked_next_index(chunk_index)?;
+                }
+                None => {
+                    if expects_final_marker {
+                        return Err(SecureCoreError::InvalidFormat(
+                            "V1.1 stream is missing its final chunk".into(),
+                        ));
+                    }
+                }
+            }
+            break;
         }
 
         let chunk_len = u32::from_le_bytes(len_buf) as usize;
@@ -146,33 +276,18 @@ pub fn decrypt_stream<R: Read, W: Write>(
         input.read_exact(&mut chunk_buf).map_err(|_| {
             SecureCoreError::InvalidFormat("unexpected EOF while reading chunk data".into())
         })?;
-
-        let chunk_nonce = nonce_for_chunk(&base_nonce, chunk_index);
-        let gcm_nonce = Nonce::from_slice(&chunk_nonce);
-
-        let aad = chunk_index.to_be_bytes();
-        let plaintext = cipher
-            .decrypt(
-                gcm_nonce,
-                aes_gcm::aead::Payload {
-                    msg: &chunk_buf,
-                    aad: &aad,
-                },
-            )
-            .map_err(|_| {
-                SecureCoreError::CryptoError(format!(
-                    "decryption failed on chunk {chunk_index}: invalid key or tampered data"
-                ))
-            })?;
-
-        output.write_all(&plaintext)?;
-
-        total_plaintext += plaintext.len() as u64;
         total_ciphertext += 4 + chunk_len as u64;
 
-        chunk_index = chunk_index
-            .checked_add(1)
-            .ok_or_else(|| SecureCoreError::InvalidParameter("too many chunks".into()))?;
+        // A new chunk has arrived behind the buffered one: flush the buffered
+        // chunk as non-final, then replace it.
+        if let Some(prev) = pending.take() {
+            let plaintext = decrypt_chunk(&cipher, &base_nonce, chunk_index, false, &prev)?;
+            output.write_all(&plaintext)?;
+            total_plaintext += plaintext.len() as u64;
+            chunk_index = checked_next_index(chunk_index)?;
+        }
+
+        pending = Some(chunk_buf);
     }
 
     output.flush()?;
@@ -182,6 +297,37 @@ pub fn decrypt_stream<R: Read, W: Write>(
         total_plaintext_bytes: total_plaintext,
         total_ciphertext_bytes: total_ciphertext,
     })
+}
+
+fn decrypt_chunk(
+    cipher: &Aes256Gcm,
+    base_nonce: &[u8; 12],
+    chunk_index: u32,
+    is_last: bool,
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, SecureCoreError> {
+    let chunk_nonce = nonce_for_chunk(base_nonce, chunk_index);
+    let gcm_nonce = Nonce::from_slice(&chunk_nonce);
+    let aad = aad_for_chunk(chunk_index, is_last);
+
+    cipher
+        .decrypt(
+            gcm_nonce,
+            aes_gcm::aead::Payload {
+                msg: ciphertext,
+                aad: &aad,
+            },
+        )
+        .map_err(|_| {
+            let cause = if is_last {
+                "truncated stream or invalid key/tampered final chunk"
+            } else {
+                "invalid key or tampered data"
+            };
+            SecureCoreError::CryptoError(format!(
+                "decryption failed on chunk {chunk_index}: {cause}"
+            ))
+        })
 }
 
 /// Reads exactly `buf.len()` bytes, or fewer if EOF is reached.

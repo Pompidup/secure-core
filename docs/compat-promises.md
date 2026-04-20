@@ -45,6 +45,13 @@ a new major version.
 - Adding new algorithm IDs (readers reject unknown algorithms gracefully)
 - Extending the header via `header_length` field (forward compatibility)
 
+#### V1.1 — `FLAG_STREAM_FINAL_CHUNK` (additive, 2026-04)
+
+Streaming `.enc` blobs now opt into truncation detection by setting `flags & 0x0001`.
+Retro-compat is preserved: `decrypt_stream` still accepts blobs with `flags == 0` using
+the legacy per-chunk-only AAD. See `docs/enc-format-v1.md#streaming-v1.1` for semantics.
+No existing golden file is affected (all current goldens exercise the in-memory path).
+
 ## Migration Procedure
 
 If a V2 format is needed:

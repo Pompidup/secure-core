@@ -9,6 +9,11 @@ pub const FORMAT_VERSION_V1: u16 = 1;
 /// Total header size in bytes for V1.
 const HEADER_SIZE_V1: u32 = 25;
 
+/// V1.1 streaming flag: the last chunk's AAD is marked to prove the stream
+/// ended where the writer intended. Blobs without this flag use the legacy
+/// per-chunk-only AAD and remain decryptable for backward compatibility.
+pub const FLAG_STREAM_FINAL_CHUNK: u16 = 0x0001;
+
 /// Size of an AES-256-GCM nonce in bytes.
 const NONCE_SIZE: usize = 12;
 
