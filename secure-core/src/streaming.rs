@@ -22,6 +22,18 @@ const LAST_CHUNK_AAD_MARKER: u32 = 0x8000_0000;
 /// Maximum chunk index permitted in a V1.1 stream (top bit reserved as marker).
 pub const MAX_STREAM_CHUNKS: u32 = LAST_CHUNK_AAD_MARKER - 1;
 
+/// Maximum total plaintext bytes a single stream can carry, derived from
+/// [`MAX_STREAM_CHUNKS`] × [`CHUNK_SIZE`] ≈ 128 TiB. Well beyond any mobile
+/// use case; callers that hit this limit should split their data across
+/// multiple streams with independent DEKs.
+///
+/// Unlike the in-memory [`crate::crypto::MAX_PLAINTEXT_SIZE`] (4 GiB on 64-bit),
+/// streaming is only bound by this ceiling because it never holds the full
+/// plaintext in memory. The two limits coexist by design: `encrypt_bytes`
+/// is for small payloads that can be fully buffered, `encrypt_stream` is
+/// the right tool for anything larger.
+pub const MAX_STREAM_PLAINTEXT_SIZE: u64 = (MAX_STREAM_CHUNKS as u64) * (CHUNK_SIZE as u64);
+
 /// Builds the per-chunk AAD. In legacy (V1.0) streams, `is_last` is always `false`
 /// so the result is `chunk_index.to_be_bytes()` — identical to the pre-flag format.
 fn aad_for_chunk(chunk_index: u32, is_last: bool) -> [u8; 4] {
@@ -355,6 +367,26 @@ mod tests {
         0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
         0x1E, 0x1F,
     ];
+
+    #[test]
+    fn test_max_stream_plaintext_size_matches_chunk_math() {
+        assert_eq!(
+            MAX_STREAM_PLAINTEXT_SIZE,
+            (MAX_STREAM_CHUNKS as u64) * (CHUNK_SIZE as u64)
+        );
+    }
+
+    #[test]
+    fn test_streaming_limit_is_strictly_larger_than_in_memory_limit() {
+        // Documents the design invariant: when a payload exceeds the
+        // in-memory cap, streaming is guaranteed to have headroom.
+        assert!(
+            (crate::crypto::MAX_PLAINTEXT_SIZE as u64) < MAX_STREAM_PLAINTEXT_SIZE,
+            "in-memory limit ({}) must remain below streaming limit ({})",
+            crate::crypto::MAX_PLAINTEXT_SIZE,
+            MAX_STREAM_PLAINTEXT_SIZE
+        );
+    }
 
     #[test]
     fn test_nonce_derivation_unique() {

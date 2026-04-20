@@ -49,8 +49,14 @@ Le champ `header_length` permet aux futures versions d'étendre le header sans c
 
 ### Taille maximale du fichier
 
-- La taille maximale du plaintext est de **4 Go** (2³² bytes).
-- Cette limite est imposée par la spécification GCM (NIST SP 800-38D) qui recommande un maximum de 2³⁹ - 256 bits (~64 Go) par invocation, mais nous imposons une limite plus conservatrice de 4 Go pour des raisons pratiques (fichiers mobiles).
+Les deux chemins d'API ont des bornes différentes — by design, pas un oubli :
+
+| Chemin | Constante Rust | Limite | Raison |
+| --- | --- | --- | --- |
+| `encrypt_bytes` (in-memory) | `crypto::MAX_PLAINTEXT_SIZE` | **4 GiB** (2³²) sur 64-bit, 2 GiB sur 32-bit | Le plaintext entier tient en RAM ; plafond conservateur bien en-dessous de la borne NIST GCM (~64 Go par invocation). |
+| `encrypt_stream` (streaming) | `streaming::MAX_STREAM_PLAINTEXT_SIZE` | **~128 TiB** (`MAX_STREAM_CHUNKS × CHUNK_SIZE` = `0x7FFF_FFFF × 64 KiB`) | Chaque chunk (64 KiB) est une invocation GCM indépendante ; la limite vient du cap `u32` sur l'index de chunk (bit haut réservé depuis V1.1). |
+
+**Règle opérationnelle** : au-dessus de `MAX_PLAINTEXT_SIZE`, bascule obligatoire sur le streaming. Le crate exporte les deux constantes pour que le consumer puisse décider à la compilation.
 
 ### Flags
 

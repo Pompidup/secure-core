@@ -16,9 +16,18 @@ Each call generates a fresh 96-bit random nonce via the OS CSPRNG (`rand::thread
 
 ### Streaming encryption (`encrypt_stream`)
 
-A single random base nonce is generated per stream. Per-chunk nonces are derived by XOR-ing the base nonce with the chunk index (big-endian u32 in the last 4 bytes). This guarantees uniqueness across all chunks within a single stream (up to 2^32 chunks).
+A single random base nonce is generated per stream. Per-chunk nonces are derived by XOR-ing the base nonce with the chunk index (big-endian u32 in the last 4 bytes). This guarantees uniqueness across all chunks within a single stream.
 
-**Limit**: A single stream must not exceed 2^32 chunks (= 256 TB at 64 KB/chunk). This is enforced at runtime.
+**Limit**: A single stream must not exceed `MAX_STREAM_CHUNKS` = `0x7FFF_FFFF` chunks (the top bit is reserved as the V1.1 final-chunk marker), i.e. `MAX_STREAM_PLAINTEXT_SIZE` ≈ 128 TiB at 64 KiB/chunk. Enforced at runtime via `checked_next_index`.
+
+### Size limits — summary
+
+| Path | Const | Limit |
+|---|---|---|
+| in-memory (`encrypt_bytes`) | `crypto::MAX_PLAINTEXT_SIZE` | 4 GiB on 64-bit, 2 GiB on 32-bit |
+| streaming (`encrypt_stream`) | `streaming::MAX_STREAM_PLAINTEXT_SIZE` | ~128 TiB |
+
+The in-memory cap is deliberately conservative: it ensures the plaintext (and a ciphertext buffer of similar size) both fit in process memory on a mobile device. Callers that would exceed it must switch to streaming. A Rust-level test asserts `MAX_PLAINTEXT_SIZE < MAX_STREAM_PLAINTEXT_SIZE` to prevent the two limits from drifting into inconsistency.
 
 ## 2. Key Handling
 
