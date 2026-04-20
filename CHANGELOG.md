@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Mitigates a silent-truncation attack on streaming `.enc` files: previously, an attacker who stripped the final chunk of a streamed blob would see `decrypt_stream` return success with a shortened plaintext. V1.1 blobs now detect this.
 - Removes the "unzeroed stack copy" of the DEK at all FFI/JNI entry points. A process-memory snapshot taken after an FFI call can no longer recover the key from the bridge's stack frame.
+- **JNI bridge no longer aborts the JVM on allocation failure.** `jni_bridge.rs` previously used `.expect()` on fallible JNI calls (`find_class`, `new_byte_array`, `new_string`, `new_object`); a JVM `OutOfMemoryError` or a missing class entry would unwind Rust across the FFI boundary and abort the Android process. Every fallible JNI call now early-returns with `JObject::null()` (or the `JString` equivalent) so the pending JVM exception surfaces cleanly to Kotlin.
 
 ## [0.1.0-core] - 2026-03-10
 

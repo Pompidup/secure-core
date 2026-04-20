@@ -43,6 +43,10 @@ let dek = Dek::take(&mut key); // `key` is wiped; only the Dek holds the secret 
 
 Use `Dek::new(key)` only when the source is not sensitive (test vectors, constants). It takes the key by value and does not touch any upstream copy.
 
+### JNI bridge robustness
+
+`jni_bridge.rs` must not panic across the FFI boundary — doing so unwinds Rust into the JVM and aborts the Android process. Every fallible JNI call (`find_class`, `new_byte_array`, `new_string`, `new_object`, …) returns early with a null `JObject` (or equivalent) on failure. The pending JVM exception (`OutOfMemoryError`, `NoClassDefFoundError`, …) then surfaces to Kotlin on native-method return, giving the app a chance to degrade gracefully instead of dying.
+
 ### Key validation
 
 - `validate_dek()` rejects keys that are not exactly 32 bytes.

@@ -29,31 +29,48 @@ fn error_to_status(err: &SecureCoreError) -> i32 {
 
 /// Creates a `NativeResult` JVM object.
 ///
-/// NativeResult(status: Int, data: ByteArray?, errorMessage: String?)
+/// `NativeResult(status: Int, data: ByteArray?, errorMessage: String?)`
+///
+/// Any JNI call in this function may fail — typically `OutOfMemoryError` on
+/// allocation or `NoClassDefFoundError` if the library was packaged without
+/// the companion Kotlin class. When that happens, the JVM has an exception
+/// already pending; we MUST return without issuing further JNI calls so the
+/// exception surfaces cleanly to Kotlin on method return. Previous code
+/// used `.expect()` which unwound Rust across the FFI boundary and aborted
+/// the JVM process — unacceptable on mobile.
 fn make_native_result<'a>(
     env: &mut JNIEnv<'a>,
     status: i32,
     data: Option<&[u8]>,
     error_message: Option<&str>,
 ) -> JObject<'a> {
-    let class = env
-        .find_class("com/securecore/SecureCoreLib$NativeResult")
-        .expect("NativeResult class not found");
+    let class = match env.find_class("com/securecore/SecureCoreLib$NativeResult") {
+        Ok(c) => c,
+        Err(_) => return JObject::null(),
+    };
 
     let data_obj: JObject = match data {
         Some(bytes) => {
-            let arr = env
-                .new_byte_array(bytes.len() as i32)
-                .expect("new_byte_array");
-            env.set_byte_array_region(&arr, 0, bytemuck_slice(bytes))
-                .expect("set_byte_array_region");
+            let arr = match env.new_byte_array(bytes.len() as i32) {
+                Ok(a) => a,
+                Err(_) => return JObject::null(),
+            };
+            if env
+                .set_byte_array_region(&arr, 0, bytemuck_slice(bytes))
+                .is_err()
+            {
+                return JObject::null();
+            }
             arr.into()
         }
         None => JObject::null(),
     };
 
     let msg_obj: JObject = match error_message {
-        Some(msg) => env.new_string(msg).expect("new_string").into(),
+        Some(msg) => match env.new_string(msg) {
+            Ok(s) => s.into(),
+            Err(_) => return JObject::null(),
+        },
         None => JObject::null(),
     };
 
@@ -66,7 +83,7 @@ fn make_native_result<'a>(
             JValue::Object(&msg_obj),
         ],
     )
-    .expect("new NativeResult")
+    .unwrap_or_else(|_| JObject::null())
 }
 
 /// Reinterpret &[u8] as &[i8] for JNI byte array copy.
@@ -81,7 +98,10 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_version<'a>(
     _class: JClass<'a>,
 ) -> JString<'a> {
     let version = env!("CARGO_PKG_VERSION");
-    env.new_string(version).expect("new_string for version")
+    // On allocation failure an OutOfMemoryError is pending in the JVM and
+    // will surface to Kotlin when control returns.
+    env.new_string(version)
+        .unwrap_or_else(|_| JString::from(JObject::null()))
 }
 
 #[no_mangle]
