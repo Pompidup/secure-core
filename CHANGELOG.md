@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Streaming truncation detection (V1.1)**: `encrypt_stream` now sets `FLAG_STREAM_FINAL_CHUNK` (bit 0 of the header `flags` field) and authenticates the last chunk with a marker bit in its AAD. `decrypt_stream` rejects streams whose terminal chunk was stripped. Backward-compatible: blobs produced before this change (`flags == 0`) continue to decrypt via the legacy code path. See `docs/enc-format-v1.md` for the semantics and `docs/compat-promises.md` for the compat posture.
+
+### Security
+- Mitigates a silent-truncation attack on streaming `.enc` files: previously, an attacker who stripped the final chunk of a streamed blob would see `decrypt_stream` return success with a shortened plaintext. V1.1 blobs now detect this.
+
 ## [0.1.0-core] - 2026-03-10
 
 ### Changed

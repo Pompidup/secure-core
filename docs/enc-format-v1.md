@@ -54,8 +54,23 @@ Le champ `header_length` permet aux futures versions d'étendre le header sans c
 
 ### Flags
 
-- En V1, le champ flags **DOIT** être `0x0000`.
-- Un lecteur V1 **DOIT** ignorer les bits de flags qu'il ne connaît pas (forward compatibility).
+Champ `u16` little-endian. Un lecteur V1 **DOIT** ignorer les bits qu'il ne connaît pas (forward compatibility).
+
+| Bit    | Nom                         | Sémantique                                                                 |
+| ------ | --------------------------- | -------------------------------------------------------------------------- |
+| `0x0001` | `FLAG_STREAM_FINAL_CHUNK` | V1.1 streaming : le dernier chunk est authentifié avec un marqueur (voir ci-dessous). Absent = layout V1.0 legacy, sans détection de troncature. |
+| `0x0002` — `0x8000` | réservés                  | Doivent être `0`. Tout bit additionnel introduit dans une future version mineure sera additif et rétro-compatible pour le chemin in-memory. |
+
+#### Streaming V1.1 — détection de troncature
+
+Les blobs produits par `encrypt_stream` portent `flags & FLAG_STREAM_FINAL_CHUNK` à `1`. Dans ce mode :
+
+- L'AAD d'un chunk non-final est `chunk_index.to_be_bytes()` (4 octets, bit haut = 0).
+- L'AAD du **dernier** chunk est `(chunk_index | 0x80000000).to_be_bytes()` (bit haut = 1).
+- Au décryptage, le dernier chunk doit valider avec le marqueur ; l'absence est rejetée → `InvalidFormat("V1.1 stream is missing its final chunk")` ou `CryptoError(...)` selon l'endroit de la troncature.
+- Conséquence : `chunk_index` est borné à `0x7FFF_FFFF` (2 147 483 647 chunks × 64 KiB ≈ 128 TiB par stream).
+
+Les blobs produits avant V1.1 (`flags == 0`) restent déchiffrables : `decrypt_stream` détecte l'absence du flag et bascule sur la sémantique legacy (AAD = `chunk_index.to_be_bytes()` pour tous les chunks, pas de détection de troncature).
 
 ### Auth tag
 
