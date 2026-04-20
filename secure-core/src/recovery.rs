@@ -13,9 +13,25 @@ const ARGON2_P_COST: u32 = 4;
 const SALT_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
 
+/// Current recovery schema version written by [`wrap_dek_with_passphrase`].
+///
+/// Blobs without this field (produced before versioning was introduced) are
+/// deserialized as version `"1.0"` for backward compatibility. Future bumps
+/// (new Argon2 params, new KDF, new cipher) use `"1.1"`, `"2.0"`, etc.; see
+/// `docs/recovery-format-v1.md` for the evolution policy.
+pub const RECOVERY_SCHEMA_VERSION: &str = "1.0";
+
+fn default_schema_version() -> String {
+    "1.0".to_string()
+}
+
 /// A passphrase-derived recovery wrap for a DEK.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecoveryWrap {
+    /// Schema version (e.g. "1.0"). Missing on pre-versioning blobs; those
+    /// are treated as "1.0" for backward compatibility.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
     pub algo: String,
     pub kdf: String,
     pub kdf_params: KdfParams,
@@ -100,6 +116,7 @@ pub fn wrap_dek_with_passphrase(
     let tag = &ciphertext_with_tag[ct_len..];
 
     Ok(RecoveryWrap {
+        schema_version: RECOVERY_SCHEMA_VERSION.to_string(),
         algo: "AES-256-GCM-ARGON2ID".to_string(),
         kdf: "argon2id-v19".to_string(),
         kdf_params: KdfParams {
@@ -121,6 +138,16 @@ pub fn unwrap_dek_with_passphrase(
 ) -> Result<[u8; 32], SecureCoreError> {
     use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine;
+
+    // Validate schema version before touching any crypto-sensitive field.
+    // `schema_version` may have defaulted to "1.0" for legacy blobs missing
+    // the field; only "1.0" is accepted by this build.
+    if wrap.schema_version != RECOVERY_SCHEMA_VERSION {
+        return Err(SecureCoreError::InvalidParameter(format!(
+            "unsupported recovery schema_version: {:?} (this build only accepts {:?})",
+            wrap.schema_version, RECOVERY_SCHEMA_VERSION
+        )));
+    }
 
     // Validate algo
     if wrap.algo != "AES-256-GCM-ARGON2ID" {
