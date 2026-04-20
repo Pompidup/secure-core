@@ -19,8 +19,10 @@ const MAX_PLAINTEXT_SIZE: usize = 2 * 1024 * 1024 * 1024;
 ///
 /// `Debug` is intentionally implemented to NOT print the key bytes,
 /// preventing accidental secret leakage in logs or error messages.
+///
+/// The inner byte array is private: callers read it via [`Dek::as_bytes`].
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct Dek(pub [u8; 32]);
+pub struct Dek([u8; 32]);
 
 impl std::fmt::Debug for Dek {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,7 +31,25 @@ impl std::fmt::Debug for Dek {
 }
 
 impl Dek {
+    /// Builds a `Dek` from an owned key array.
+    ///
+    /// The caller is responsible for zeroizing any upstream copy of `key`.
+    /// Prefer [`Dek::take`] when the source is a mutable buffer that holds
+    /// sensitive material — it wipes the source after copying.
     pub fn new(key: [u8; 32]) -> Self {
+        Self(key)
+    }
+
+    /// Builds a `Dek` by moving bytes out of `src` and zeroizing it.
+    ///
+    /// After this call, `src` is guaranteed to be all zeros, so any stack
+    /// copy the caller holds cannot leak the key. This is the preferred
+    /// constructor at FFI/JNI boundaries where a temporary `[u8; 32]`
+    /// buffer has just been populated from caller memory.
+    pub fn take(src: &mut [u8; 32]) -> Self {
+        let mut key = [0u8; 32];
+        key.copy_from_slice(src);
+        src.zeroize();
         Self(key)
     }
 
@@ -262,9 +282,13 @@ mod tests {
 
         // Verify explicit zeroize clears the key
         let mut dek = Dek::new([0x42u8; 32]);
-        assert_eq!(dek.0, [0x42u8; 32]);
+        assert_eq!(dek.as_bytes(), &[0x42u8; 32]);
         dek.zeroize();
-        assert_eq!(dek.0, [0u8; 32], "DEK must be zeroed after zeroize()");
+        assert_eq!(
+            dek.as_bytes(),
+            &[0u8; 32],
+            "DEK must be zeroed after zeroize()"
+        );
     }
 
     #[test]
@@ -275,6 +299,25 @@ mod tests {
         assert!(
             !debug_output.contains("ff") && !debug_output.contains("FF"),
             "Debug must not contain key bytes"
+        );
+    }
+
+    #[test]
+    fn test_dek_take_zeroes_source() {
+        let mut src = [0x5Au8; 32];
+        let _dek = Dek::take(&mut src);
+        assert_eq!(src, [0u8; 32], "Dek::take must zero the caller's buffer");
+    }
+
+    #[test]
+    fn test_dek_take_preserves_value_in_dek() {
+        let original = [0x5Au8; 32];
+        let mut src = original;
+        let dek = Dek::take(&mut src);
+        assert_eq!(
+            dek.as_bytes(),
+            &original,
+            "Dek must hold the original key bytes"
         );
     }
 

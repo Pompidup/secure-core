@@ -291,7 +291,9 @@ unsafe fn validate_dek(dek_ptr: *const u8, dek_len: usize) -> Option<Dek> {
     let dek_slice = std::slice::from_raw_parts(dek_ptr, 32);
     let mut key = [0u8; 32];
     key.copy_from_slice(dek_slice);
-    Some(Dek::new(key))
+    // `Dek::take` wipes our stack buffer after copying, so the temporary
+    // key material does not linger on this frame.
+    Some(Dek::take(&mut key))
 }
 
 /// Converts a C string pointer to a `&str`, returning `None` if null or invalid UTF-8.

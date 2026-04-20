@@ -6,10 +6,18 @@
 
 ```rust
 /// A Data Encryption Key, zeroized on drop. Debug prints "Dek([REDACTED])".
-pub struct Dek(pub [u8; 32]);
+/// The inner byte array is private; read it via `as_bytes()`.
+pub struct Dek(/* private: [u8; 32] */);
 
 impl Dek {
+    /// Builds a Dek from an owned array. Caller is responsible for any
+    /// upstream zeroization of `key`.
     pub fn new(key: [u8; 32]) -> Self;
+
+    /// Preferred at FFI/JNI boundaries: copies `src` into the Dek and
+    /// zeroes the source array so no stack copy of the secret lingers.
+    pub fn take(src: &mut [u8; 32]) -> Self;
+
     pub fn as_bytes(&self) -> &[u8; 32];
 }
 
