@@ -1,10 +1,20 @@
 #![cfg(feature = "_test-vectors")]
 
-//! One-shot generator for the compat pack golden files.
+//! One-shot generator for all committed test data.
 //! Run with: cargo test --test generate_compat_pack --features _test-vectors -- --ignored
 //!
-//! This generates deterministic .enc files using fixed DEKs and nonces.
-//! The outputs are committed to testdata/compat/v1/ and verified by compat_tests.rs.
+//! Produces two deterministic outputs, both committed to git:
+//! - `testdata/compat/v1/` : the cross-platform compat pack (4 success
+//!   vectors + 3 error vectors + `vectors.json` + `test_deks.json`),
+//!   consumed by `tests/compat_tests.rs`.
+//! - `testdata/v1_reference.enc` : a single small reference blob used by
+//!   the regression tests in `tests/crypto_tests.rs`.
+//!
+//! Previously these two outputs were produced by separate ignored tests
+//! (`generate_compat_pack.rs` and `generate_reference.rs`). They used the
+//! same primitive and the same feature gate; splitting them gave us two
+//! sources of truth for "how do we rebuild the test corpus?". Now there
+//! is one.
 
 use secure_core::crypto::encrypt_bytes_with_nonce_test;
 use sha2::{Digest, Sha256};
@@ -32,6 +42,18 @@ const DEK_TEXT_SMALL: [u8; 32] = [
     0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
     0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F,
 ];
+
+// Reference blob constants (testdata/v1_reference.enc). Must match the
+// values used by tests/crypto_tests.rs::test_regression_v1_reference* —
+// changing them breaks regression tests without any crypto change.
+const REFERENCE_KEY: [u8; 32] = [
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+];
+const REFERENCE_NONCE: [u8; 12] = [
+    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB,
+];
+const REFERENCE_PLAINTEXT: &[u8] = b"secure-core v1 reference test vector";
 
 // ── Nonces (one per vector) ────────────────────────────────────────────
 
@@ -270,6 +292,20 @@ fn generate_compat_pack_v1() {
         serde_json::to_string_pretty(&vectors_json).unwrap(),
     )
     .unwrap();
+
+    // ── testdata/v1_reference.enc ──────────────────────────────────
+    //
+    // A single small reference blob used by the regression tests in
+    // crypto_tests.rs. Kept alongside the compat pack so there is one
+    // canonical place to regenerate every committed test fixture.
+    {
+        let blob =
+            encrypt_bytes_with_nonce_test(REFERENCE_PLAINTEXT, &REFERENCE_KEY, REFERENCE_NONCE)
+                .unwrap();
+        let out_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/v1_reference.enc");
+        fs::write(&out_path, &blob).unwrap();
+        eprintln!("  v1_reference.enc: {} bytes", blob.len());
+    }
 
     eprintln!("Compat pack V1 generated successfully.");
 }
