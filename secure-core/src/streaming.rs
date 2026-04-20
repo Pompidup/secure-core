@@ -15,6 +15,12 @@ pub const CHUNK_SIZE: usize = 64 * 1024;
 /// GCM auth tag size in bytes.
 const TAG_SIZE: usize = 16;
 
+/// Upper bound on a single chunk's encoded length (ciphertext + tag).
+/// A legitimate writer never exceeds `CHUNK_SIZE + TAG_SIZE`; anything
+/// beyond is corruption or a malicious payload trying to force a huge
+/// allocation via the 4-byte length prefix.
+const MAX_CHUNK_ENCODED_LEN: usize = CHUNK_SIZE + TAG_SIZE;
+
 /// High bit of the 4-byte AAD that marks the final chunk in a V1.1 stream.
 /// The bit is reserved; valid chunk indices are in `0..LAST_CHUNK_AAD_MARKER`.
 const LAST_CHUNK_AAD_MARKER: u32 = 0x8000_0000;
@@ -282,6 +288,14 @@ pub fn decrypt_stream<R: Read, W: Write>(
             return Err(SecureCoreError::InvalidFormat(
                 "chunk too small to contain auth tag".into(),
             ));
+        }
+        if chunk_len > MAX_CHUNK_ENCODED_LEN {
+            // Reject attacker-declared lengths before allocating — otherwise
+            // a malicious blob could force vec![0; 4GB] and abort the
+            // process on low-memory devices.
+            return Err(SecureCoreError::InvalidFormat(format!(
+                "chunk length {chunk_len} exceeds maximum {MAX_CHUNK_ENCODED_LEN}"
+            )));
         }
 
         let mut chunk_buf = vec![0u8; chunk_len];
