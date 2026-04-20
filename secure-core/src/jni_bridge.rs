@@ -129,8 +129,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptBytes<'a>(
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&dek_bytes);
+    let dek = Dek::take(&mut key);
 
-    match encrypt_bytes(&plaintext_bytes, &key) {
+    match encrypt_bytes(&plaintext_bytes, dek.as_bytes()) {
         Ok(blob) => make_native_result(&mut env, FFI_OK, Some(&blob), None),
         Err(e) => {
             let status = error_to_status(&e);
@@ -184,8 +185,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&dek_bytes);
+    let dek = Dek::take(&mut key);
 
-    match decrypt_bytes(&blob_bytes, &key) {
+    match decrypt_bytes(&blob_bytes, dek.as_bytes()) {
         Ok(plaintext) => make_native_result(&mut env, FFI_OK, Some(&plaintext), None),
         Err(e) => {
             let status = error_to_status(&e);
@@ -239,8 +241,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeWrapDekWithPassph
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&dek_bytes);
+    let dek = Dek::take(&mut key);
 
-    match recovery::wrap_dek_with_passphrase(&key, &passphrase_str) {
+    match recovery::wrap_dek_with_passphrase(dek.as_bytes(), &passphrase_str) {
         Ok(wrap) => match serde_json::to_vec(&wrap) {
             Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
             Err(e) => make_native_result(
@@ -367,12 +370,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptFile<'a>(
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&dek_bytes);
+    let dek = Dek::take(&mut key);
 
-    match api::encrypt_file(
-        Path::new(&input_str),
-        Path::new(&output_str),
-        &Dek::new(key),
-    ) {
+    match api::encrypt_file(Path::new(&input_str), Path::new(&output_str), &dek) {
         Ok(result) => match serde_json::to_vec(&result.stream_metadata) {
             Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
             Err(e) => make_native_result(
@@ -447,12 +447,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&dek_bytes);
+    let dek = Dek::take(&mut key);
 
-    match api::decrypt_file(
-        Path::new(&input_str),
-        Path::new(&output_str),
-        &Dek::new(key),
-    ) {
+    match api::decrypt_file(Path::new(&input_str), Path::new(&output_str), &dek) {
         Ok(meta) => match serde_json::to_vec(&meta) {
             Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
             Err(e) => make_native_result(

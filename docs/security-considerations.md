@@ -29,6 +29,20 @@ A single random base nonce is generated per stream. Per-chunk nonces are derived
 3. **Zeroization**: The `Dek` struct derives `ZeroizeOnDrop` — key bytes are overwritten with zeros when the struct is dropped. For raw `[u8; 32]` keys passed to `encrypt_bytes` / `decrypt_bytes`, the caller is responsible for zeroization.
 4. **No persistence**: Core never writes the DEK to disk, logs, or any persistent storage.
 
+### Building a `Dek` at the FFI/JNI boundary
+
+When key material arrives from caller memory (a C pointer, a JVM `byte[]`), the idiomatic pattern is:
+
+```rust
+let mut key = [0u8; 32];
+key.copy_from_slice(&incoming);
+let dek = Dek::take(&mut key); // `key` is wiped; only the Dek holds the secret now
+```
+
+`Dek::take(&mut src)` copies the bytes into the returned `Dek` and zeroes `src`, so the temporary stack buffer cannot leak the key after the function returns. Both `ffi/functions.rs` and `jni_bridge.rs` follow this pattern; mobile adapters should too when they build a `Dek` from a transient array.
+
+Use `Dek::new(key)` only when the source is not sensitive (test vectors, constants). It takes the key by value and does not touch any upstream copy.
+
 ### Key validation
 
 - `validate_dek()` rejects keys that are not exactly 32 bytes.

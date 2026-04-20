@@ -27,8 +27,10 @@ let key = [0u8; 32]; // Use a real 256-bit key
 let blob = encrypt_bytes(b"Hello, Pompidup!", &key).unwrap();
 let plaintext = decrypt_bytes(&blob, &key).unwrap();
 
-// Streaming (files, large data)
-let dek = Dek::new(key);
+// Streaming (files, large data) — use Dek::take when `key` is a sensitive
+// buffer you want wiped after construction.
+let mut key = [0u8; 32]; // Populate from your keystore
+let dek = secure_core::crypto::Dek::take(&mut key);
 let input = std::fs::File::open("photo.jpg").unwrap();
 let output = std::fs::File::create("photo.jpg.enc").unwrap();
 let meta = encrypt_stream(input, output, &dek).unwrap();

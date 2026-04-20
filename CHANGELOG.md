@@ -9,9 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Streaming truncation detection (V1.1)**: `encrypt_stream` now sets `FLAG_STREAM_FINAL_CHUNK` (bit 0 of the header `flags` field) and authenticates the last chunk with a marker bit in its AAD. `decrypt_stream` rejects streams whose terminal chunk was stripped. Backward-compatible: blobs produced before this change (`flags == 0`) continue to decrypt via the legacy code path. See `docs/enc-format-v1.md` for the semantics and `docs/compat-promises.md` for the compat posture.
+- `Dek::take(&mut [u8; 32]) -> Dek`: preferred constructor at FFI/JNI boundaries. Copies the bytes into the returned `Dek` and zeroes the caller's source buffer so no stack copy of the key lingers.
+
+### Changed
+- **`Dek` inner field is now private.** Previously `pub struct Dek(pub [u8; 32])`, now `pub struct Dek([u8; 32])`. Access the bytes via `Dek::as_bytes()`. This removes a footgun where callers could read the key without going through the typed accessor. No FFI/ABI impact (the type is Rust-internal).
+- `ffi/functions.rs` and `jni_bridge.rs` now build `Dek` via `Dek::take(&mut key)` across all code paths (encrypt/decrypt bytes, wrap-dek-with-passphrase, encrypt/decrypt file) so the transient 32-byte stack buffer is zeroed immediately after construction.
 
 ### Security
 - Mitigates a silent-truncation attack on streaming `.enc` files: previously, an attacker who stripped the final chunk of a streamed blob would see `decrypt_stream` return success with a shortened plaintext. V1.1 blobs now detect this.
+- Removes the "unzeroed stack copy" of the DEK at all FFI/JNI entry points. A process-memory snapshot taken after an FFI call can no longer recover the key from the bridge's stack frame.
 
 ## [0.1.0-core] - 2026-03-10
 
