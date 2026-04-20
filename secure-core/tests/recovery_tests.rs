@@ -1,5 +1,7 @@
+use secure_core::error::SecureCoreError;
 use secure_core::recovery::{
     derive_recovery_key, unwrap_dek_with_passphrase, wrap_dek_with_passphrase, RecoveryWrap,
+    RECOVERY_SCHEMA_VERSION,
 };
 
 const TEST_DEK: [u8; 32] = [
@@ -152,4 +154,72 @@ fn test_argon2id_params_in_json() {
     assert_eq!(parsed["kdf_params"]["m"], 65536);
     assert_eq!(parsed["kdf_params"]["t"], 3);
     assert_eq!(parsed["kdf_params"]["p"], 4);
+}
+
+// ── Schema versioning ──────────────────────────────────────────────────
+
+#[test]
+fn test_wrap_writes_schema_version() {
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    assert_eq!(wrap.schema_version, RECOVERY_SCHEMA_VERSION);
+
+    let json_str = serde_json::to_string(&wrap).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(parsed["schema_version"], RECOVERY_SCHEMA_VERSION);
+}
+
+#[test]
+fn test_unwrap_accepts_explicit_schema_version_1_0() {
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let mut value = serde_json::to_value(&wrap).unwrap();
+    value["schema_version"] = serde_json::Value::String("1.0".into());
+
+    let round_trip: RecoveryWrap = serde_json::from_value(value).unwrap();
+    let unwrapped = unwrap_dek_with_passphrase(&round_trip, TEST_PASSPHRASE).unwrap();
+    assert_eq!(unwrapped, TEST_DEK);
+}
+
+#[test]
+fn test_unwrap_defaults_missing_schema_version_to_1_0() {
+    // Legacy recovery blobs produced before this change do not carry the
+    // schema_version field. They must still decrypt for existing users.
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let mut value = serde_json::to_value(&wrap).unwrap();
+    value.as_object_mut().unwrap().remove("schema_version");
+
+    let legacy: RecoveryWrap = serde_json::from_value(value).unwrap();
+    assert_eq!(legacy.schema_version, "1.0");
+
+    let unwrapped = unwrap_dek_with_passphrase(&legacy, TEST_PASSPHRASE).unwrap();
+    assert_eq!(unwrapped, TEST_DEK);
+}
+
+#[test]
+fn test_unwrap_rejects_unknown_schema_version() {
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let mut value = serde_json::to_value(&wrap).unwrap();
+    value["schema_version"] = serde_json::Value::String("2.0".into());
+
+    let future: RecoveryWrap = serde_json::from_value(value).unwrap();
+    let err = unwrap_dek_with_passphrase(&future, TEST_PASSPHRASE).unwrap_err();
+    match err {
+        SecureCoreError::InvalidParameter(msg) => {
+            assert!(
+                msg.contains("schema_version") && msg.contains("2.0"),
+                "message should cite unknown version: {msg}"
+            );
+        }
+        other => panic!("expected InvalidParameter, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unwrap_rejects_empty_schema_version() {
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let mut value = serde_json::to_value(&wrap).unwrap();
+    value["schema_version"] = serde_json::Value::String("".into());
+
+    let bad: RecoveryWrap = serde_json::from_value(value).unwrap();
+    let err = unwrap_dek_with_passphrase(&bad, TEST_PASSPHRASE).unwrap_err();
+    assert!(matches!(err, SecureCoreError::InvalidParameter(_)));
 }

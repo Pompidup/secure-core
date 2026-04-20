@@ -72,6 +72,7 @@ A `WrapsEnvelope` with the `recovery` field populated:
   "schema_version": "1.1",
   "device": null,
   "recovery": {
+    "schema_version": "1.0",
     "algo": "AES-256-GCM-ARGON2ID",
     "kdf": "argon2id-v19",
     "kdf_params": { "m": 65536, "t": 3, "p": 4 },
@@ -82,6 +83,11 @@ A `WrapsEnvelope` with the `recovery` field populated:
   }
 }
 ```
+
+**Note on the two `schema_version` fields.** The outer one belongs to
+`WrapsEnvelope` (device / recovery container). The inner one belongs to
+`RecoveryWrap` itself and governs the passphrase-derived KDF + cipher
+parameters. They evolve independently.
 
 The `device` field is `null` in the bundle — it is re-created on import
 using the target device's keystore/keychain.
@@ -125,9 +131,36 @@ using the target device's keystore/keychain.
 
 ## Versioning
 
+### Bundle format (`manifest.json`)
+
 | Version | Status | Notes |
 |---------|--------|-------|
 | 1 | **Current** | Initial release with Argon2id + AES-256-GCM |
 
 Future versions may add support for additional KDFs or multi-recipient wraps.
 The `format` and `version` fields in `manifest.json` enable forward compatibility.
+
+### `RecoveryWrap` schema (`wraps/{docId}.wraps.json → recovery`)
+
+The `RecoveryWrap` carries its own `schema_version` field governing the
+passphrase-derived key material.
+
+| `schema_version` | Algo | KDF | Params | Status |
+|------------------|------|-----|--------|--------|
+| `"1.0"` | `AES-256-GCM-ARGON2ID` | `argon2id-v19` | `m=65536, t=3, p=4` | **Current** |
+
+**Compatibility posture.**
+
+- A `RecoveryWrap` written before versioning was introduced does not carry
+  `schema_version` in its JSON. Such blobs deserialize as `"1.0"` — this is
+  the deliberate migration path, no user action required.
+- A `secure-core` build accepts exactly one version at unwrap time. Blobs
+  stamped with an unknown `schema_version` (e.g. a future `"1.1"` or `"2.0"`
+  seen by an older client) are rejected with an `InvalidParameter` error;
+  callers should surface this as "bundle produced by a newer app version —
+  please update".
+- A version bump happens when any of the wire-level parameters changes:
+  Argon2 m/t/p, KDF identifier, cipher, or tag/nonce length. The `algo`,
+  `kdf`, and `kdf_params` fields stay in the JSON for self-description, but
+  `schema_version` is the single coarse gate that clients must understand
+  before touching the bundle.
