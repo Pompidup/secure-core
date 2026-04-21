@@ -58,6 +58,8 @@ Use `Dek::new(key)` only when the source is not sensitive (test vectors, constan
 
 ### Passphrase handling
 
+See also `docs/platform-contract.md` section 4 for the corresponding platform-side obligations (zeroize the UI-held buffer, avoid intermediate immutable Kotlin/Swift `String`, etc.).
+
 `recovery::wrap_dek_with_passphrase` and `recovery::unwrap_dek_with_passphrase` take `&str` — they borrow, never own. The caller keeps control of the passphrase buffer and is responsible for its lifecycle.
 
 - **C FFI path** (`ffi/functions.rs`): the passphrase `&str` is borrowed via `CStr::from_ptr` directly from the caller's `const char*`. Nothing is copied on the Rust side; zeroizing the original C string is the caller's responsibility (platform contract).

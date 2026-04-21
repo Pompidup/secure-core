@@ -164,3 +164,7 @@ passphrase-derived key material.
   `kdf`, and `kdf_params` fields stay in the JSON for self-description, but
   `schema_version` is the single coarse gate that clients must understand
   before touching the bundle.
+
+**Platform-side handling.** See `docs/platform-contract.md` section 5 for the
+mandatory UX on unknown versions (surface "please update the app" to the user,
+never attempt to rewrite the `schema_version` field of an incoming blob).
