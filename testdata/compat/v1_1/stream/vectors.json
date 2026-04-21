@@ -1,0 +1,40 @@
+{
+  "format": "streaming",
+  "produced_at": "2026-04-21",
+  "produced_by": "secure-core v0.1.0 / Rust",
+  "vectors": [
+    {
+      "chunks": 1,
+      "cipher_sha256": "e0f6328b0e865774b3fe0c30cab0032f7f56d5a03e78714a7efe92a10b0f3df1",
+      "ciphertext_size": 2093,
+      "dek_ref": "dek_stream_single_chunk",
+      "header": {
+        "algo": "AES-256-GCM",
+        "base_nonce": "0102030405060708090a0b0c",
+        "flags": "0x0001",
+        "version": 1
+      },
+      "id": "stream_single_chunk",
+      "mime_type": "application/octet-stream",
+      "plain_sha256": "03eb17e638b855b4e1d213458488edd354dfbe67168495abe31a883ac9f673b2",
+      "plaintext_size": 2048
+    },
+    {
+      "chunks": 3,
+      "cipher_sha256": "85895cc1aabc89cdfd1f1f1e1d0b66399c6e96dc931de53b9a46a3e5106ce8ff",
+      "ciphertext_size": 131934,
+      "dek_ref": "dek_stream_multi_chunk",
+      "header": {
+        "algo": "AES-256-GCM",
+        "base_nonce": "1112131415161718191a1b1c",
+        "flags": "0x0001",
+        "version": 1
+      },
+      "id": "stream_multi_chunk",
+      "mime_type": "application/octet-stream",
+      "plain_sha256": "3a08feff076d555b226fae7daab6a15aaef36bdec1400b53ee307d0d0476ec96",
+      "plaintext_size": 131849
+    }
+  ],
+  "version": "1.1"
+}

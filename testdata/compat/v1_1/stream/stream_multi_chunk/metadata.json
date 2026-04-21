@@ -1,0 +1,16 @@
+{
+  "chunks": 3,
+  "ciphertextSize": 131934,
+  "contentHash": "3a08feff076d555b226fae7daab6a15aaef36bdec1400b53ee307d0d0476ec96",
+  "headerParsed": {
+    "algorithm": "AES-256-GCM",
+    "algorithmId": "0x01",
+    "baseNonce": "1112131415161718191a1b1c",
+    "flags": "0x0001",
+    "flagsMeaning": "FLAG_STREAM_FINAL_CHUNK set; last chunk's AAD carries the terminal marker",
+    "headerLength": 25,
+    "version": 1
+  },
+  "mimeType": "application/octet-stream",
+  "plaintextSize": 131849
+}
