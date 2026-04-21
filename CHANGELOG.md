@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 
-## [0.2.0] - 2026-04-21
+## [0.3.0] - 2026-04-21
 
 ### Added
 - **Streaming truncation detection (V1.1)**: `encrypt_stream` now sets `FLAG_STREAM_FINAL_CHUNK` (bit 0 of the header `flags` field) and authenticates the last chunk with a marker bit in its AAD. `decrypt_stream` rejects streams whose terminal chunk was stripped. Backward-compatible: blobs produced before this change (`flags == 0`) continue to decrypt via the legacy code path. See `docs/enc-format-v1.md` for the semantics and `docs/compat-promises.md` for the compat posture.
