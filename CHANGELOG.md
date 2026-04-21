@@ -8,11 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Security
+
+
+## [0.2.0] - 2026-04-21
+
+### Added
 - **Streaming truncation detection (V1.1)**: `encrypt_stream` now sets `FLAG_STREAM_FINAL_CHUNK` (bit 0 of the header `flags` field) and authenticates the last chunk with a marker bit in its AAD. `decrypt_stream` rejects streams whose terminal chunk was stripped. Backward-compatible: blobs produced before this change (`flags == 0`) continue to decrypt via the legacy code path. See `docs/enc-format-v1.md` for the semantics and `docs/compat-promises.md` for the compat posture.
 - `Dek::take(&mut [u8; 32]) -> Dek`: preferred constructor at FFI/JNI boundaries. Copies the bytes into the returned `Dek` and zeroes the caller's source buffer so no stack copy of the key lingers.
 - **`RecoveryWrap` schema versioning.** New field `schema_version` (current value `"1.0"`) stamped on every wrap, validated at unwrap. Blobs without the field (produced before this change) deserialize as `"1.0"` so existing recovery bundles keep working. Rejecting unknown versions gives future param bumps (e.g. Argon2 m/t/p or KDF change) a clean migration path — older clients surface a clear `InvalidParameter("unsupported recovery schema_version: ...")` instead of attempting to decrypt with stale params. See `docs/recovery-format-v1.md#recoverywrap-schema` for the evolution policy.
 - **Public size limits.** `crypto::MAX_PLAINTEXT_SIZE` (formerly private) and the new `streaming::MAX_STREAM_PLAINTEXT_SIZE` are both exposed. Doc-comments and `docs/enc-format-v1.md` now cross-reference them so callers can pick the right API for their payload size (in-memory vs streaming). A sanity test asserts the in-memory limit stays strictly below the streaming limit to prevent future drift.
 - **Parser robustness test suite** (`tests/parser_robustness.rs`). Fuzz-lite, no new dep: 8 tests feed `EncHeader::from_bytes`, `decrypt_bytes`, `decrypt_stream` with seeded random bytes, exhaustive bit-flips of valid blobs, every truncation prefix, and pathological streaming length prefixes. Asserts no panic / abort / UB across ~6 000 hostile inputs per run. Seeded for reproducibility.
+- **V1.1 streaming compat pack** (`testdata/compat/v1_1/stream/`). Two deterministic golden streams (`stream_single_chunk` 2 KiB / 1 chunk, `stream_multi_chunk` ~128.8 KiB / 3 chunks) freeze the V1.1 on-disk layout cross-platform. Produced via `encrypt_stream_with_nonce_test` (new `_test-vectors` helper that forces the base nonce for reproducibility). Verified by 5 new tests in `compat_tests.rs`: decryption, header flag presence, truncation rejection, byte-for-byte regeneration. The `compat-tests` CI job now diffs the entire `testdata/compat/` tree (V1 and V1.1) to catch any unintentional format drift.
+- **Platform contract update** (`docs/platform-contract.md`). New §4 "Cycle de vie de la passphrase" (Android/iOS/C zeroize guidance) and §5 "Gestion des erreurs de version recovery" (UX on unsupported `schema_version`). "Ce que le core ne fera JAMAIS" table now enumerates: no silent streaming truncation, no panic across FFI/JNI, no unknown-schema `RecoveryWrap`.
 
 ### Removed
 - `tests/generate_reference.rs`. Its sole output, `testdata/v1_reference.enc`, is now produced by `tests/generate_compat_pack.rs` alongside the compat pack. One binary, one command (`cargo test --test generate_compat_pack --features _test-vectors -- --ignored`) to rebuild every committed test fixture. The produced `v1_reference.enc` is byte-for-byte identical; regression tests in `crypto_tests.rs` are unchanged.

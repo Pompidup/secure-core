@@ -153,7 +153,17 @@ fn test_ffi_version_returns_string() {
 
     // SAFETY: secure_core_version returns a static null-terminated string.
     let version = unsafe { CStr::from_ptr(version_ptr) }.to_str().unwrap();
-    assert!(version.starts_with("0.1"), "unexpected version: {version}");
+    // Match on semver shape (MAJOR.MINOR[.PATCH][…]) rather than a pinned
+    // prefix, so routine version bumps don't require a test change.
+    assert!(
+        !version.is_empty() && version.contains('.'),
+        "unexpected version shape: {version:?}"
+    );
+    assert_eq!(
+        version,
+        env!("CARGO_PKG_VERSION"),
+        "FFI version string must match Cargo.toml"
+    );
 }
 
 #[test]
