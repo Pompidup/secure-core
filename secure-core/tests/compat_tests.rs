@@ -7,12 +7,15 @@
 //! Any failure here means a FORMAT REGRESSION — the .enc binary format has changed
 //! in a way that breaks cross-platform compatibility.
 
-use secure_core::crypto::{decrypt_bytes, encrypt_bytes_with_nonce_test};
-use secure_core::error::SecureCoreError;
-use secure_core::format::EncHeader;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
+
+use secure_core::crypto::{decrypt_bytes, encrypt_bytes_with_nonce_test, Dek};
+use secure_core::error::SecureCoreError;
+use secure_core::format::{EncHeader, FLAG_STREAM_FINAL_CHUNK};
+use secure_core::streaming::{decrypt_stream, encrypt_stream_with_nonce_test};
+use sha2::{Digest, Sha256};
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -272,4 +275,233 @@ fn test_compat_error_future_version() {
         ),
         "expected UnsupportedVersion(99, 1) for future version, got: {err:?}"
     );
+}
+
+// ── V1.1 streaming compat pack ─────────────────────────────────────────
+//
+// The V1.1 format (opt-in header flag FLAG_STREAM_FINAL_CHUNK) is frozen
+// by golden files under testdata/compat/v1_1/stream/. Each vector must
+// round-trip, decrypt to the expected plaintext, carry the flag, detect
+// truncation, and regenerate byte-for-byte — the compat posture mirrors
+// the V1 in-memory pack above.
+
+fn compat_v1_1_stream_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/compat/v1_1/stream")
+}
+
+#[derive(serde::Deserialize)]
+struct StreamVectorsFile {
+    vectors: Vec<StreamVectorEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct StreamVectorEntry {
+    id: String,
+    dek_ref: String,
+    plain_sha256: String,
+    cipher_sha256: String,
+    chunks: u32,
+    header: StreamHeaderEntry,
+}
+
+#[derive(serde::Deserialize)]
+struct StreamHeaderEntry {
+    base_nonce: String,
+}
+
+fn load_v1_1_stream_vectors() -> StreamVectorsFile {
+    let path = compat_v1_1_stream_dir().join("vectors.json");
+    let data = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    serde_json::from_str(&data).unwrap()
+}
+
+fn load_v1_1_stream_deks() -> HashMap<String, Vec<u8>> {
+    let path = compat_v1_1_stream_dir().join("test_deks.json");
+    let data = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let raw: serde_json::Value = serde_json::from_str(&data).unwrap();
+    raw.as_object()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k.starts_with("dek_"))
+        .map(|(k, v)| (k.clone(), hex_to_bytes(v.as_str().unwrap())))
+        .collect()
+}
+
+fn find_stream_vector<'a>(vectors: &'a StreamVectorsFile, id: &str) -> &'a StreamVectorEntry {
+    vectors
+        .vectors
+        .iter()
+        .find(|v| v.id == id)
+        .unwrap_or_else(|| panic!("V1.1 stream vector {id} not found"))
+}
+
+fn decrypt_stream_vector(vector: &StreamVectorEntry) -> Vec<u8> {
+    let enc_path = compat_v1_1_stream_dir()
+        .join(&vector.id)
+        .join("encrypted.enc");
+    let enc_data = std::fs::read(&enc_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", enc_path.display()));
+
+    assert_eq!(
+        sha256_hex(&enc_data),
+        vector.cipher_sha256,
+        "cipher_sha256 mismatch for V1.1 stream vector {} — golden file drift",
+        vector.id,
+    );
+
+    let deks = load_v1_1_stream_deks();
+    let dek_bytes = deks
+        .get(&vector.dek_ref)
+        .unwrap_or_else(|| panic!("DEK {} not found in V1.1 test_deks.json", vector.dek_ref));
+    let dek_arr: [u8; 32] = dek_bytes.as_slice().try_into().unwrap();
+    let dek = Dek::new(dek_arr);
+
+    let mut plaintext = Vec::new();
+    decrypt_stream(Cursor::new(&enc_data), &mut plaintext, &dek)
+        .unwrap_or_else(|e| panic!("decrypt_stream failed on {}: {e}", vector.id));
+    plaintext
+}
+
+#[test]
+fn test_compat_v1_1_stream_single_chunk_decrypts() {
+    let vectors = load_v1_1_stream_vectors();
+    let vector = find_stream_vector(&vectors, "stream_single_chunk");
+
+    let plaintext = decrypt_stream_vector(vector);
+    assert_eq!(
+        sha256_hex(&plaintext),
+        vector.plain_sha256,
+        "FORMAT REGRESSION: stream_single_chunk plaintext SHA mismatch"
+    );
+
+    let expected =
+        std::fs::read(compat_v1_1_stream_dir().join(&vector.id).join("plain.bin")).unwrap();
+    assert_eq!(plaintext, expected);
+}
+
+#[test]
+fn test_compat_v1_1_stream_multi_chunk_decrypts() {
+    let vectors = load_v1_1_stream_vectors();
+    let vector = find_stream_vector(&vectors, "stream_multi_chunk");
+    assert_eq!(vector.chunks, 3, "fixture expected to span 3 chunks");
+
+    let plaintext = decrypt_stream_vector(vector);
+    assert_eq!(
+        sha256_hex(&plaintext),
+        vector.plain_sha256,
+        "FORMAT REGRESSION: stream_multi_chunk plaintext SHA mismatch"
+    );
+
+    let expected =
+        std::fs::read(compat_v1_1_stream_dir().join(&vector.id).join("plain.bin")).unwrap();
+    assert_eq!(plaintext, expected);
+}
+
+#[test]
+fn test_compat_v1_1_stream_header_carries_final_flag() {
+    let vectors = load_v1_1_stream_vectors();
+    for vector in &vectors.vectors {
+        let enc_path = compat_v1_1_stream_dir()
+            .join(&vector.id)
+            .join("encrypted.enc");
+        let enc_data = std::fs::read(&enc_path).unwrap();
+        let header = EncHeader::from_bytes(&enc_data).unwrap();
+        assert_ne!(
+            header.flags & FLAG_STREAM_FINAL_CHUNK,
+            0,
+            "vector {} is a V1.1 golden but its flag is not set",
+            vector.id
+        );
+    }
+}
+
+#[test]
+fn test_compat_v1_1_stream_multi_chunk_truncation_is_detected() {
+    let vectors = load_v1_1_stream_vectors();
+    let vector = find_stream_vector(&vectors, "stream_multi_chunk");
+
+    let enc_path = compat_v1_1_stream_dir()
+        .join(&vector.id)
+        .join("encrypted.enc");
+    let enc_data = std::fs::read(&enc_path).unwrap();
+
+    // Walk the chunk-length framing to find where the last chunk starts,
+    // then truncate the blob to drop it. The V1.1 final-chunk marker must
+    // make decrypt_stream reject this.
+    let mut offset = 25usize;
+    let mut last_chunk_start = offset;
+    while offset + 4 <= enc_data.len() {
+        last_chunk_start = offset;
+        let len = u32::from_le_bytes([
+            enc_data[offset],
+            enc_data[offset + 1],
+            enc_data[offset + 2],
+            enc_data[offset + 3],
+        ]) as usize;
+        offset += 4 + len;
+    }
+    assert!(
+        last_chunk_start > 25,
+        "need at least one chunk before the last"
+    );
+    let truncated = &enc_data[..last_chunk_start];
+
+    let deks = load_v1_1_stream_deks();
+    let dek_arr: [u8; 32] = deks
+        .get(&vector.dek_ref)
+        .unwrap()
+        .as_slice()
+        .try_into()
+        .unwrap();
+    let dek = Dek::new(dek_arr);
+
+    let mut sink = Vec::new();
+    let err = decrypt_stream(Cursor::new(truncated), &mut sink, &dek).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            SecureCoreError::InvalidFormat(_) | SecureCoreError::CryptoError(_)
+        ),
+        "truncated V1.1 stream must be rejected, got: {err:?}"
+    );
+}
+
+#[test]
+fn test_compat_v1_1_stream_deterministic_regeneration() {
+    let vectors = load_v1_1_stream_vectors();
+    let deks = load_v1_1_stream_deks();
+
+    for vector in &vectors.vectors {
+        let dek_arr: [u8; 32] = deks
+            .get(&vector.dek_ref)
+            .unwrap()
+            .as_slice()
+            .try_into()
+            .unwrap();
+        let dek = Dek::new(dek_arr);
+
+        let base_nonce: [u8; 12] = hex_to_bytes(&vector.header.base_nonce).try_into().unwrap();
+
+        let plaintext =
+            std::fs::read(compat_v1_1_stream_dir().join(&vector.id).join("plain.bin")).unwrap();
+
+        let mut regenerated = Vec::new();
+        encrypt_stream_with_nonce_test(Cursor::new(&plaintext), &mut regenerated, &dek, base_nonce)
+            .unwrap();
+
+        let stored = std::fs::read(
+            compat_v1_1_stream_dir()
+                .join(&vector.id)
+                .join("encrypted.enc"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            stored, regenerated,
+            "FORMAT REGRESSION: V1.1 stream vector {} does not regenerate byte-for-byte",
+            vector.id
+        );
+    }
 }
