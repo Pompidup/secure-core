@@ -83,7 +83,7 @@ jobs:
         run: chmod +x scripts/check-ffi-header.sh && ./scripts/check-ffi-header.sh
 
   compat-tests:
-    name: Compat Tests (V1 Golden Files)
+    name: Compat Tests (V1 + V1.1 Golden Files)
     runs-on: ubuntu-latest
     needs: check
     steps:
@@ -95,17 +95,19 @@ jobs:
       - name: Check golden files are deterministic
         run: |
           cargo test --test generate_compat_pack --features _test-vectors -- --ignored 2>&1
-          if ! git diff --quiet testdata/compat/v1/; then
-            echo "::error::FORMAT REGRESSION DETECTED — golden files differ after re-generation. Bump version or document migration."
-            git diff --stat testdata/compat/v1/
+          # Diff the full testdata/compat/ tree — catches any unintentional
+          # drift in v1/ (in-memory .enc) AND v1_1/stream/ (V1.1 streaming).
+          if ! git diff --quiet testdata/compat/; then
+            echo "::error::FORMAT REGRESSION DETECTED — golden files differ after re-generation. Bump version or document migration (see docs/compat-promises.md)."
+            git diff --stat testdata/compat/
             exit 1
           fi
       - name: Upload compat pack
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: compat-pack-v1
-          path: testdata/compat/v1/
+          name: compat-pack
+          path: testdata/compat/
 
   coverage:
     name: Coverage
