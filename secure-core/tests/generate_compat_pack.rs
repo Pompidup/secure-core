@@ -456,10 +456,14 @@ fn generate_compat_pack_v1() {
         )
         .unwrap();
 
+        // produced_by is frozen at the version that originally generated
+        // these fixtures, mirroring the V1 pack. Using env!("CARGO_PKG_VERSION")
+        // here would re-couple fixture output to each crate bump and
+        // trip the compat-tests diff check on every release.
         let stream_vectors_json = serde_json::json!({
             "version": "1.1",
             "format": "streaming",
-            "produced_by": format!("secure-core v{} / Rust", env!("CARGO_PKG_VERSION")),
+            "produced_by": "secure-core v0.1.0 / Rust",
             "produced_at": "2026-04-21",
             "vectors": stream_vectors.iter().map(|v| serde_json::json!({
                 "id": v.id,
