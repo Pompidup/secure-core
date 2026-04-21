@@ -76,7 +76,21 @@ pub fn encrypt_stream<R: Read, W: Write>(
     output: W,
     dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError> {
-    encrypt_stream_impl(input, output, dek, true)
+    encrypt_stream_impl(input, output, dek, true, None)
+}
+
+/// Deterministic V1.1 encoder used to produce reproducible golden files.
+/// Given the same `base_nonce`, `dek`, and input bytes, it emits a
+/// byte-identical stream — enabling the compat pack to ship streaming
+/// vectors that other implementations can verify.
+#[cfg(any(test, feature = "_test-vectors"))]
+pub fn encrypt_stream_with_nonce_test<R: Read, W: Write>(
+    input: R,
+    output: W,
+    dek: &Dek,
+    base_nonce: [u8; 12],
+) -> Result<StreamMetadata, SecureCoreError> {
+    encrypt_stream_impl(input, output, dek, true, Some(base_nonce))
 }
 
 /// Legacy V1 encoder (no final-chunk marker). Only exposed for compat tests.
@@ -86,7 +100,7 @@ pub fn encrypt_stream_legacy_v1_test<R: Read, W: Write>(
     output: W,
     dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError> {
-    encrypt_stream_impl(input, output, dek, false)
+    encrypt_stream_impl(input, output, dek, false, None)
 }
 
 fn encrypt_stream_impl<R: Read, W: Write>(
@@ -94,8 +108,9 @@ fn encrypt_stream_impl<R: Read, W: Write>(
     mut output: W,
     dek: &Dek,
     with_final_flag: bool,
+    forced_nonce: Option<[u8; 12]>,
 ) -> Result<StreamMetadata, SecureCoreError> {
-    let base_nonce = generate_nonce();
+    let base_nonce = forced_nonce.unwrap_or_else(generate_nonce);
     let mut header = EncHeader::new_v1(base_nonce);
     if with_final_flag {
         header.flags |= FLAG_STREAM_FINAL_CHUNK;
@@ -381,6 +396,24 @@ mod tests {
         0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
         0x1E, 0x1F,
     ];
+
+    #[test]
+    fn test_encrypt_stream_with_nonce_is_deterministic() {
+        let dek = Dek::new(TEST_KEY);
+        let plaintext = b"deterministic stream vector";
+        let nonce = [0xAB_u8; 12];
+
+        let mut blob1 = Vec::new();
+        encrypt_stream_with_nonce_test(Cursor::new(plaintext), &mut blob1, &dek, nonce).unwrap();
+
+        let mut blob2 = Vec::new();
+        encrypt_stream_with_nonce_test(Cursor::new(plaintext), &mut blob2, &dek, nonce).unwrap();
+
+        assert_eq!(
+            blob1, blob2,
+            "same key+nonce+plaintext must produce byte-identical streams"
+        );
+    }
 
     #[test]
     fn test_max_stream_plaintext_size_matches_chunk_math() {
