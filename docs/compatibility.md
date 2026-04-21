@@ -2,13 +2,15 @@
 
 ## Forward Compatibility Promise
 
-**Tout fichier `.enc` V1 restera lisible par toutes les versions futures de secure-core.**
+**Tout fichier `.enc` V1 ou V1.1 restera lisible par toutes les versions futures de secure-core.**
 
 Ce contrat est garanti par :
 
-1. Le champ `version` dans le header (octets 4-5) identifie la version du format.
-2. Les futures versions du core devront toujours supporter le parsing et le dechiffrement des headers V1.
-3. Le blob de reference `testdata/v1_reference.enc` est verifie dans les tests d'integration pour detecter toute regression.
+1. Le champ `version` dans le header (octets 4-5) identifie la version majeure du format.
+2. Le champ `flags` (octets 19-20) signale les extensions mineures additives (ex. `FLAG_STREAM_FINAL_CHUNK` pour V1.1). Un lecteur ignore les bits qu'il ne connaît pas quand le comportement reste safe, ou accepte explicitement le bit quand son support est requis (cas de V1.1 streaming : un lecteur post-V1.1 bascule sur la détection de troncature).
+3. Les futures versions du core devront toujours supporter le parsing et le déchiffrement des headers V1.x.
+4. Le blob de référence `testdata/v1_reference.enc` est vérifié dans les tests d'intégration pour détecter toute régression.
+5. Le pack compat V1.1 sous `testdata/compat/v1_1/stream/` fige le layout streaming (flag + AAD + chunk framing) via 5 tests de régression qui échouent au moindre diff binaire.
 
 ## Strategie de migration V2
 
@@ -60,10 +62,13 @@ En V1, `content_hash` est optionnel et non calcule par le core. En V2, le core p
 
 ### flags
 
-Les 16 bits du champ `flags` sont tous a zero en V1. Les bits suivants sont reserves :
+Champ `u16` little-endian, authentifié comme AAD dans le header GCM.
 
-| Bit | Usage prevu |
-|---|---|
-| 0 | Compression active (zstd avant chiffrement) |
-| 1 | Key rotation marker |
-| 2-15 | Reserves |
+| Bit | Nom / usage | Statut |
+|---|---|---|
+| 0 | `FLAG_STREAM_FINAL_CHUNK` — V1.1 streaming : AAD du dernier chunk marquée pour détection de troncature | **Actif** (depuis v0.2.0) |
+| 1 | Key rotation marker | Réservé |
+| 2 | Compression (zstd avant chiffrement) | Réservé |
+| 3-15 | Divers | Réservés, doivent être `0` |
+
+Tout bit activé en V2 devra rester additif et n'invalide jamais les lecteurs V1.x (via `header_length` pour les extensions longues, ou via une sémantique "safe to ignore" pour les flags purement informatifs).
