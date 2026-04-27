@@ -69,7 +69,7 @@ impl Dek {
 /// Generates a cryptographically random 12-byte nonce.
 pub fn generate_nonce() -> [u8; 12] {
     let mut nonce = [0u8; 12];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
+    rand::RngCore::fill_bytes(&mut rand::rng(), &mut nonce);
     nonce
 }
 

@@ -40,7 +40,7 @@ A weekly `cargo audit` CI workflow (`.github/workflows/audit.yml`) is in place.
 | Property | Status |
 |---|---|
 | Algorithm | AES-256-GCM (NIST approved, AEAD) |
-| Nonce generation | 96-bit random via `rand::thread_rng()` (OS CSPRNG) |
+| Nonce generation | 96-bit random via `rand::rng()` (OS CSPRNG) |
 | Nonce uniqueness (streaming) | Base nonce XOR chunk index — unique per chunk |
 | AAD binding | Full header (25 bytes) used as AAD — tamper-evident |
 | Max plaintext | 4 GB hard limit enforced before encryption |

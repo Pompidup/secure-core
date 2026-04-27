@@ -11,13 +11,13 @@ use secure_core::ffi::types::*;
 
 fn random_bytes(len: usize) -> Vec<u8> {
     let mut buf = vec![0u8; len];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rng().fill_bytes(&mut buf);
     buf
 }
 
 fn make_dek() -> [u8; 32] {
     let mut dek = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut dek);
+    rand::rng().fill_bytes(&mut dek);
     dek
 }
 

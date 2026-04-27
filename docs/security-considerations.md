@@ -8,7 +8,7 @@ This document describes the security properties, assumptions, and limits of the 
 
 ### In-memory encryption (`encrypt_bytes`)
 
-Each call generates a fresh 96-bit random nonce via the OS CSPRNG (`rand::thread_rng()`). The nonce is embedded in the `.enc` V1 header.
+Each call generates a fresh 96-bit random nonce via the OS CSPRNG (`rand::rng()`). The nonce is embedded in the `.enc` V1 header.
 
 **Collision bound**: With 96-bit random nonces under a single key, the birthday bound gives ~2^48 encryptions before a 50% collision probability. For mobile usage patterns (even millions of documents), the risk is negligible.
 

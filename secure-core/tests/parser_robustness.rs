@@ -37,7 +37,7 @@ const TEST_KEY: [u8; 32] = [
 ];
 
 fn random_bytes(rng: &mut StdRng, max_len: usize) -> Vec<u8> {
-    let len = rng.gen_range(0..=max_len);
+    let len = rng.random_range(0..=max_len);
     let mut buf = vec![0u8; len];
     rng.fill(&mut buf[..]);
     buf

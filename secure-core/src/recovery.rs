@@ -93,8 +93,8 @@ pub fn wrap_dek_with_passphrase(
     // Generate random salt and nonce
     let mut salt = [0u8; SALT_LEN];
     let mut nonce = [0u8; NONCE_LEN];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut salt);
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
+    rand::RngCore::fill_bytes(&mut rand::rng(), &mut salt);
+    rand::RngCore::fill_bytes(&mut rand::rng(), &mut nonce);
 
     // Derive key
     let mut recovery_key = derive_recovery_key(passphrase, &salt)?;
