@@ -30,7 +30,9 @@ Out of scope:
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-To report a vulnerability, send an email to: **security@pompidup.com**
+To report a vulnerability, send an email to: **julienauvray28@gmail.com**
+
+Alternatively, you can use [GitHub's private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) on this repository.
 
 Please include:
 
