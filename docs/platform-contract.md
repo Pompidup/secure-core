@@ -61,6 +61,30 @@ Quand la plateforme appelle `wrap_dek_with_passphrase` ou `unwrap_dek_with_passp
 
 Voir `docs/security-considerations.md#passphrase-handling` pour les détails côté Rust.
 
+#### Politique de passphrase (recommandations plateforme)
+
+Le core impose **un seul** invariant : la passphrase ne doit pas être vide (`InvalidParameter` sinon). Tout le reste — qualité, longueur, anti-bruteforce — est de la responsabilité de la plateforme. Recommandations minimales :
+
+| Règle | Valeur recommandée | Justification |
+| ----- | ------------------ | ------------- |
+| Longueur minimum | **12 caractères** Unicode (≥ 64 bits d'entropie estimée pour une passphrase humaine) | Argon2id (m=64 MiB, t=3, p=4) protège contre le bruteforce hors-ligne, mais ne compense pas une passphrase courte type `"motdepasse"`. |
+| Longueur maximum | **1024 octets UTF-8** | Borne anti-DoS. Argon2id traite la passphrase entière à chaque dérivation (~500 ms) ; au-delà de 1 KiB, c'est un vecteur d'amplification CPU. |
+| Normalisation | **UTF-8 NFC** avant l'appel FFI | Sans normalisation, deux saisies visuellement identiques (« café » composé vs précomposé selon clavier/OS) produisent des dérivations Argon2id différentes → unwrap échoue mystérieusement. |
+| Trim | **Pas de `trim()` automatique** côté plateforme | Un trim silencieux modifie la passphrase derrière le dos de l'utilisateur. Si trim il y a, il doit être visible dans l'UI au moment de la saisie. |
+| Tentatives | **Max 5 essais consécutifs**, puis backoff exponentiel (`2^n` secondes) | Protège contre une attaque online si l'écran de recovery est exposé (par ex. partage d'écran, accès physique court). |
+| Persistance | **Interdite** — ni cache, ni keychain, ni clipboard auto | La passphrase de recovery est un facteur "ce que je sais" ; la stocker la dégrade en "ce que j'ai", défaisant son rôle. |
+| Logging | **Interdit** — y compris la longueur, le hash, ou un préfixe | Le seul log autorisé sur le chemin recovery est : `op=wrap_dek doc_id=<id> result=<status_code>`. Voir `docs/security-considerations.md`. |
+
+**À surfacer dans l'UI :**
+- Indicateur de force visible et non bloquant (zxcvbn ou équivalent côté plateforme).
+- Avertissement explicite : « Cette passphrase ne peut pas être récupérée si vous l'oubliez. » Le core ne propose aucun mécanisme de réinitialisation par design.
+- Confirmation (double saisie) lors du wrap initial uniquement, jamais lors de l'unwrap.
+
+**Ce que le core ne valide pas (et ne validera jamais) :**
+- La complexité (présence de chiffres, casse, symboles) — c'est une décision UX/produit.
+- La présence dans une liste de passphrases compromises (HIBP, RockYou) — nécessiterait soit un appel réseau (interdit), soit une liste embarquée (taille incompatible avec une lib mobile).
+- La longueur maximale — la plateforme l'enforce **avant** l'appel FFI, sinon Argon2id traitera toute la passphrase.
+
 ### 5. Gestion des erreurs de version recovery
 
 Depuis v0.2.0, le format `RecoveryWrap` porte un champ `schema_version`. Un core qui ne reconnaît pas la version déclarée **rejette explicitement** le bundle :
