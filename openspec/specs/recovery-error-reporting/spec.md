@@ -1,4 +1,14 @@
-## ADDED Requirements
+# recovery-error-reporting Specification
+
+## Purpose
+
+Define how recovery DEK unwrap failures are classified and surfaced as
+structured, stable error categories across the Rust core, the C FFI, and the
+JNI bridge — so mobile clients can distinguish an unsupported recovery schema
+version from generic invalid input, crypto failures, and other errors by code
+rather than by parsing human-readable messages.
+
+## Requirements
 
 ### Requirement: Unsupported recovery schema version is a distinct, structured error
 
