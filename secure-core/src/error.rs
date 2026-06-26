@@ -9,6 +9,14 @@ pub enum SecureCoreError {
     /// The format version is not supported by this build.
     UnsupportedVersion { found: u16, max_supported: u16 },
 
+    /// The recovery wrap's `schema_version` is not supported by this build.
+    ///
+    /// Distinct from [`Self::InvalidParameter`] so clients can tell an
+    /// incompatible recovery bundle ("please update the app") apart from a
+    /// merely malformed one, without parsing the error message. `found` is the
+    /// offending `schema_version` value, kept for diagnostics only.
+    UnsupportedRecoverySchema { found: String },
+
     /// A cryptographic operation failed.
     CryptoError(String),
 
@@ -29,6 +37,10 @@ impl fmt::Display for SecureCoreError {
             } => write!(
                 f,
                 "unsupported version: found {found}, max supported {max_supported}"
+            ),
+            Self::UnsupportedRecoverySchema { found } => write!(
+                f,
+                "unsupported recovery schema_version: {found:?} (this build accepts \"1.0\")"
             ),
             Self::CryptoError(msg) => write!(f, "crypto error: {msg}"),
             Self::IoError(err) => write!(f, "I/O error: {err}"),

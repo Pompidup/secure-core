@@ -143,10 +143,9 @@ pub fn unwrap_dek_with_passphrase(
     // `schema_version` may have defaulted to "1.0" for legacy blobs missing
     // the field; only "1.0" is accepted by this build.
     if wrap.schema_version != RECOVERY_SCHEMA_VERSION {
-        return Err(SecureCoreError::InvalidParameter(format!(
-            "unsupported recovery schema_version: {:?} (this build only accepts {:?})",
-            wrap.schema_version, RECOVERY_SCHEMA_VERSION
-        )));
+        return Err(SecureCoreError::UnsupportedRecoverySchema {
+            found: wrap.schema_version.clone(),
+        });
     }
 
     // Validate algo

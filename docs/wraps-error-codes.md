@@ -17,11 +17,18 @@ across all platforms (Rust core, Android, iOS) for consistent error reporting.
 
 ### Rust (`SecureCoreError`)
 
-| Error Code | Variant |
-|------------|---------|
-| `WRAP_FORMAT_INVALID` | `SecureCoreError::InvalidParameter(...)` |
-| `WRAP_ALGO_UNSUPPORTED` | `SecureCoreError::InvalidParameter(...)` |
-| `WRAP_VERSION_TOO_NEW` | `SecureCoreError::InvalidParameter(...)` |
+| Error Code | Variant | FFI status |
+|------------|---------|------------|
+| `WRAP_FORMAT_INVALID` | `SecureCoreError::InvalidParameter(...)` | `5` |
+| `WRAP_ALGO_UNSUPPORTED` | `SecureCoreError::InvalidParameter(...)` | `5` |
+| `WRAP_VERSION_TOO_NEW` | `SecureCoreError::UnsupportedRecoverySchema { found }` | `6` |
+
+> `WRAP_VERSION_TOO_NEW` (recovery wrap `schema_version` unsupported) maps to a
+> **dedicated** FFI status `6` (`FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA`),
+> distinct from the generic `5` used by the format/algo cases. Clients SHALL
+> branch on the numeric status code — not the error message — to distinguish
+> "update the app" (`6`) from "corrupted bundle" (`5`) and "wrong passphrase"
+> (`3`, `FFI_ERROR_CRYPTO`).
 
 ### Android (`KeyManagerError`)
 

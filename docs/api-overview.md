@@ -215,6 +215,13 @@ All functions use `extern "C"` ABI. The caller **must** free results via `secure
 | 3 | `FFI_ERROR_CRYPTO` | Decryption / auth failure |
 | 4 | `FFI_ERROR_IO` | I/O error |
 | 5 | `FFI_ERROR_INVALID_PARAM` | Invalid parameter |
+| 6 | `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | Recovery wrap `schema_version` not supported by this build |
+
+> Clients SHALL classify failures by the numeric status **code**, never by
+> parsing `error_msg`. In particular, an incompatible recovery bundle returns
+> code `6` (distinct from the generic `5`), so a client can prompt "please
+> update the app" without string-matching. `error_msg` is diagnostic only and
+> may change between releases.
 
 ### Kotlin (JNI) pseudo-code
 

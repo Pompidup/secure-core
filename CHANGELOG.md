@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- FFI status code `6` `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` (C:
+  `SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA`) and the
+  `SecureCoreError::UnsupportedRecoverySchema { found }` variant. Returned by
+  `unwrap_dek_with_passphrase` when a recovery wrap's `schema_version` is not
+  supported by this build. Additive and backward-compatible: status codes `0`–`5`
+  are unchanged and no FFI signature changed. Lets mobile clients classify an
+  incompatible recovery bundle by status code instead of matching the error
+  message text.
+
 ### Changed
+
+- `unwrap_dek_with_passphrase` now returns `UnsupportedRecoverySchema` (FFI
+  status `6`) instead of `InvalidParameter` (status `5`) on an unsupported
+  recovery `schema_version`. The error message still contains "unsupported
+  recovery schema_version" but is now diagnostic only — clients should branch
+  on the status code.
 
 ### Security
 

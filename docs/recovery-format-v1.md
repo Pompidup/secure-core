@@ -156,9 +156,13 @@ passphrase-derived key material.
   the deliberate migration path, no user action required.
 - A `secure-core` build accepts exactly one version at unwrap time. Blobs
   stamped with an unknown `schema_version` (e.g. a future `"1.1"` or `"2.0"`
-  seen by an older client) are rejected with an `InvalidParameter` error;
-  callers should surface this as "bundle produced by a newer app version —
-  please update".
+  seen by an older client) are rejected with the dedicated
+  `SecureCoreError::UnsupportedRecoverySchema { found }` variant, which maps to
+  FFI status `6` (`FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA`) — distinct from the
+  generic `InvalidParameter` (status `5`) used for malformed input. Callers
+  SHALL branch on the **status code**, not the error message, to surface this
+  as "bundle produced by a newer app version — please update". The error
+  message remains diagnostic only and may change between releases.
 - A version bump happens when any of the wire-level parameters changes:
   Argon2 m/t/p, KDF identifier, cipher, or tag/nonce length. The `algo`,
   `kdf`, and `kdf_params` fields stay in the JSON for self-description, but
