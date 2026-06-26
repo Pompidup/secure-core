@@ -15,7 +15,7 @@ use crate::crypto::{decrypt_bytes, encrypt_bytes, Dek};
 use crate::error::SecureCoreError;
 use crate::ffi::types::{
     FFI_ERROR_CRYPTO, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM, FFI_ERROR_IO,
-    FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK,
+    FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA, FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK,
 };
 use crate::recovery;
 
@@ -23,6 +23,7 @@ fn error_to_status(err: &SecureCoreError) -> i32 {
     match err {
         SecureCoreError::InvalidFormat(_) => FFI_ERROR_INVALID_FORMAT,
         SecureCoreError::UnsupportedVersion { .. } => FFI_ERROR_UNSUPPORTED_VERSION,
+        SecureCoreError::UnsupportedRecoverySchema { .. } => FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA,
         SecureCoreError::CryptoError(_) => FFI_ERROR_CRYPTO,
         SecureCoreError::IoError(_) => FFI_ERROR_IO,
         SecureCoreError::InvalidParameter(_) => FFI_ERROR_INVALID_PARAM,
@@ -489,5 +490,36 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
             let status = error_to_status(&e);
             make_native_result(&mut env, status, None, Some(&e.to_string()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The JNI status mapping must match the C FFI exactly, so Android/iOS read
+    /// the same numeric code. In particular, a recovery-schema mismatch maps to
+    /// the dedicated code, not the generic invalid-parameter one. `error_to_status`
+    /// needs no JVM, so this runs under `--features jni` without a live `JNIEnv`.
+    #[test]
+    fn test_error_to_status_matches_ffi_codes() {
+        assert_eq!(
+            error_to_status(&SecureCoreError::UnsupportedRecoverySchema {
+                found: "2.0".into()
+            }),
+            FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA
+        );
+        assert_eq!(
+            error_to_status(&SecureCoreError::InvalidParameter("x".into())),
+            FFI_ERROR_INVALID_PARAM
+        );
+        assert_eq!(
+            error_to_status(&SecureCoreError::CryptoError("x".into())),
+            FFI_ERROR_CRYPTO
+        );
+        assert_ne!(
+            FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA,
+            FFI_ERROR_INVALID_PARAM
+        );
     }
 }

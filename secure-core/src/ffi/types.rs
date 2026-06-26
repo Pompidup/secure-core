@@ -11,6 +11,11 @@ pub const FFI_ERROR_UNSUPPORTED_VERSION: i32 = 2;
 pub const FFI_ERROR_CRYPTO: i32 = 3;
 pub const FFI_ERROR_IO: i32 = 4;
 pub const FFI_ERROR_INVALID_PARAM: i32 = 5;
+/// The recovery wrap's `schema_version` is not supported by this build.
+/// Additive code (introduced after 0-5); distinct from `INVALID_PARAM` so
+/// clients can classify "incompatible recovery bundle" without parsing the
+/// error message.
+pub const FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA: i32 = 6;
 
 // ── FFI types ───────────────────────────────────────────────────────────
 
@@ -78,6 +83,9 @@ impl FfiResult {
             SecureCoreError::UnsupportedVersion { .. } => {
                 (FFI_ERROR_UNSUPPORTED_VERSION, err.to_string())
             }
+            SecureCoreError::UnsupportedRecoverySchema { .. } => {
+                (FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA, err.to_string())
+            }
             SecureCoreError::CryptoError(_) => (FFI_ERROR_CRYPTO, err.to_string()),
             SecureCoreError::IoError(_) => (FFI_ERROR_IO, err.to_string()),
             SecureCoreError::InvalidParameter(_) => (FFI_ERROR_INVALID_PARAM, err.to_string()),
@@ -108,4 +116,50 @@ fn sanitize_to_cstring(msg: String) -> CString {
         .collect();
     // No NUL bytes remain, so this cannot fail.
     CString::new(bytes).expect("NUL bytes were replaced above")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `SecureCoreError` variant maps to its documented, stable status
+    /// code. Locks the additive contract: codes 0-5 are unchanged and the
+    /// recovery-schema error gets its own code 6.
+    #[test]
+    fn test_error_status_code_mapping_is_stable() {
+        let cases = [
+            (
+                SecureCoreError::InvalidFormat("x".into()),
+                FFI_ERROR_INVALID_FORMAT,
+            ),
+            (
+                SecureCoreError::UnsupportedVersion {
+                    found: 2,
+                    max_supported: 1,
+                },
+                FFI_ERROR_UNSUPPORTED_VERSION,
+            ),
+            (SecureCoreError::CryptoError("x".into()), FFI_ERROR_CRYPTO),
+            (
+                SecureCoreError::InvalidParameter("x".into()),
+                FFI_ERROR_INVALID_PARAM,
+            ),
+            (
+                SecureCoreError::UnsupportedRecoverySchema {
+                    found: "2.0".into(),
+                },
+                FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA,
+            ),
+        ];
+
+        for (err, expected) in cases {
+            assert_eq!(FfiResult::from_error(err).status, expected);
+        }
+
+        // The new code is distinct from the generic invalid-parameter code.
+        assert_ne!(
+            FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA,
+            FFI_ERROR_INVALID_PARAM
+        );
+    }
 }

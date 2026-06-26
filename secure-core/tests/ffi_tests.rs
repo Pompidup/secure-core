@@ -268,6 +268,49 @@ fn test_ffi_unwrap_dek_wrong_passphrase() {
 }
 
 #[test]
+fn test_ffi_unwrap_dek_unsupported_schema_version() {
+    let dek = make_test_dek();
+    let passphrase = CString::new("test-passphrase-12345").unwrap();
+
+    // SAFETY: dek and passphrase are valid stack-allocated data.
+    let wrap_result = unsafe {
+        secure_core_wrap_dek_with_passphrase(dek.as_ptr(), dek.len(), passphrase.as_ptr())
+    };
+    assert_eq!(wrap_result.status, FFI_OK);
+
+    // SAFETY: on success, wrap_result.data points to data.len bytes of valid JSON.
+    let json = unsafe { std::slice::from_raw_parts(wrap_result.data.ptr, wrap_result.data.len) };
+    let json_str = std::str::from_utf8(json).expect("wrap output should be valid UTF-8");
+    // Rewrite schema_version to a value this build does not support. The wrap
+    // JSON is compact (serde_json::to_vec), so the field appears verbatim.
+    let bumped = json_str.replace(r#""schema_version":"1.0""#, r#""schema_version":"2.0""#);
+    assert_ne!(
+        bumped, json_str,
+        "schema_version field should have been rewritten"
+    );
+    let bumped_bytes = bumped.into_bytes();
+
+    // SAFETY: bumped_bytes is a valid readable buffer; passphrase is valid.
+    let unwrap_result = unsafe {
+        secure_core_unwrap_dek_with_passphrase(
+            bumped_bytes.as_ptr(),
+            bumped_bytes.len(),
+            passphrase.as_ptr(),
+        )
+    };
+    // The distinct, additive status code lets mobile clients classify
+    // "incompatible bundle — update the app" without matching the message text.
+    assert_eq!(unwrap_result.status, FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA);
+    assert!(!unwrap_result.error_msg.is_null());
+
+    // SAFETY: freeing results allocated by secure_core FFI; each result is used exactly once.
+    unsafe {
+        secure_core_free_result(wrap_result);
+        secure_core_free_result(unwrap_result);
+    }
+}
+
+#[test]
 fn test_ffi_decrypt_truncated_blob() {
     let plaintext = b"truncation test data for FFI";
     let dek = make_test_dek();

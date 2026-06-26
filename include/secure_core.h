@@ -27,6 +27,10 @@ extern "C" {
 #define SECURE_CORE_ERROR_CRYPTO            3
 #define SECURE_CORE_ERROR_IO                4
 #define SECURE_CORE_ERROR_INVALID_PARAM     5
+/* Recovery wrap schema_version not supported by this build. Additive (codes
+ * 0-5 unchanged); distinct from INVALID_PARAM so clients can detect an
+ * incompatible recovery bundle without parsing error_msg. */
+#define SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA 6
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 

@@ -203,13 +203,13 @@ fn test_unwrap_rejects_unknown_schema_version() {
     let future: RecoveryWrap = serde_json::from_value(value).unwrap();
     let err = unwrap_dek_with_passphrase(&future, TEST_PASSPHRASE).unwrap_err();
     match err {
-        SecureCoreError::InvalidParameter(msg) => {
-            assert!(
-                msg.contains("schema_version") && msg.contains("2.0"),
-                "message should cite unknown version: {msg}"
+        SecureCoreError::UnsupportedRecoverySchema { found } => {
+            assert_eq!(
+                found, "2.0",
+                "error must carry the offending schema_version"
             );
         }
-        other => panic!("expected InvalidParameter, got {other:?}"),
+        other => panic!("expected UnsupportedRecoverySchema, got {other:?}"),
     }
 }
 
@@ -221,5 +221,42 @@ fn test_unwrap_rejects_empty_schema_version() {
 
     let bad: RecoveryWrap = serde_json::from_value(value).unwrap();
     let err = unwrap_dek_with_passphrase(&bad, TEST_PASSPHRASE).unwrap_err();
-    assert!(matches!(err, SecureCoreError::InvalidParameter(_)));
+    // An empty schema_version is still "not a version this build supports",
+    // so it is classified as a schema mismatch, not a generic bad parameter.
+    match err {
+        SecureCoreError::UnsupportedRecoverySchema { found } => {
+            assert_eq!(found, "", "error must carry the offending schema_version");
+        }
+        other => panic!("expected UnsupportedRecoverySchema, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unwrap_malformed_base64_stays_invalid_parameter() {
+    // A wrap with the SUPPORTED schema_version but corrupted base64 must remain
+    // a generic invalid-parameter error — NOT a schema mismatch. This guards the
+    // boundary the mobile clients rely on to tell "update the app" apart from
+    // "the bundle is corrupted".
+    let mut wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    assert_eq!(wrap.schema_version, RECOVERY_SCHEMA_VERSION);
+    wrap.salt = "not valid base64!!!".to_string();
+
+    let err = unwrap_dek_with_passphrase(&wrap, TEST_PASSPHRASE).unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::InvalidParameter(_)),
+        "malformed base64 must stay InvalidParameter, got {err:?}"
+    );
+}
+
+#[test]
+fn test_unwrap_wrong_passphrase_is_crypto_error() {
+    // A structurally valid wrap with the supported schema_version but a wrong
+    // passphrase must surface as a crypto error, distinct from both the schema
+    // mismatch and the invalid-parameter cases.
+    let wrap = wrap_dek_with_passphrase(&TEST_DEK, TEST_PASSPHRASE).unwrap();
+    let err = unwrap_dek_with_passphrase(&wrap, "definitely the wrong one").unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::CryptoError(_)),
+        "wrong passphrase must be CryptoError, got {err:?}"
+    );
 }
