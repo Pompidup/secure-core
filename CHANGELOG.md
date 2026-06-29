@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Security
+
+
+## [0.4.0] - 2026-06-29
+
+### Added
+
 - FFI status code `6` `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` (C:
   `SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA`) and the
   `SecureCoreError::UnsupportedRecoverySchema { found }` variant. Returned by
@@ -25,8 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recovery `schema_version`. The error message still contains "unsupported
   recovery schema_version" but is now diagnostic only — clients should branch
   on the status code.
-
-### Security
 
 
 ## [0.3.0] - 2026-04-21
