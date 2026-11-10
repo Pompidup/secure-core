@@ -11,8 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- CI: GitHub Actions moved to Node 24 runtimes (`actions/checkout@v5`,
+  `actions/upload-artifact@v6`, `actions/download-artifact@v7`,
+  `android-actions/setup-android@v4`) ahead of the Node 20 removal.
+
 ### Security
 
+- Lockfile: `crossbeam-epoch` 0.9.18 → 0.9.21 (RUSTSEC-2026-0204) and
+  `anyhow` 1.0.102 → 1.0.104 (RUSTSEC-2026-0190). Both are dev/bench-only
+  dependencies (via `criterion`); the shipped library is unaffected. Restores a
+  clean `cargo audit`.
 
 ## [0.4.0] - 2026-06-29
 
