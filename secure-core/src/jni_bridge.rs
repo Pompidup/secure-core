@@ -114,8 +114,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptBytes<'a>(
     plaintext: JByteArray<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
+    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
     let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => b,
+        Ok(b) => Zeroizing::new(b),
         Err(_) => {
             return make_native_result(
                 &mut env,
@@ -139,7 +140,7 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptBytes<'a>(
     }
 
     let plaintext_bytes = match env.convert_byte_array(&plaintext) {
-        Ok(b) => b,
+        Ok(b) => Zeroizing::new(b),
         Err(_) => {
             return make_native_result(
                 &mut env,
@@ -170,8 +171,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
     blob: JByteArray<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
+    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
     let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => b,
+        Ok(b) => Zeroizing::new(b),
         Err(_) => {
             return make_native_result(
                 &mut env,
@@ -211,7 +213,10 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
     let dek = Dek::take(&mut key);
 
     match decrypt_bytes(&blob_bytes, dek.as_bytes()) {
-        Ok(plaintext) => make_native_result(&mut env, FFI_OK, Some(&plaintext), None),
+        Ok(plaintext) => {
+            let plaintext = Zeroizing::new(plaintext);
+            make_native_result(&mut env, FFI_OK, Some(&plaintext), None)
+        }
         Err(e) => {
             let status = error_to_status(&e);
             make_native_result(&mut env, status, None, Some(&e.to_string()))
@@ -226,8 +231,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeWrapDekWithPassph
     dek: JByteArray<'a>,
     passphrase: JString<'a>,
 ) -> JObject<'a> {
+    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
     let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => b,
+        Ok(b) => Zeroizing::new(b),
         Err(_) => {
             return make_native_result(
                 &mut env,
@@ -331,7 +337,7 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPass
     };
 
     match recovery::unwrap_dek_with_passphrase(&wrap, &passphrase_str) {
-        Ok(dek) => make_native_result(&mut env, FFI_OK, Some(&dek), None),
+        Ok(dek) => make_native_result(&mut env, FFI_OK, Some(dek.as_bytes()), None),
         Err(e) => {
             let status = error_to_status(&e);
             make_native_result(&mut env, status, None, Some(&e.to_string()))
@@ -347,8 +353,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptFile<'a>(
     output_path: JString<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
+    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
     let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => b,
+        Ok(b) => Zeroizing::new(b),
         Err(_) => {
             return make_native_result(
                 &mut env,
@@ -458,8 +465,9 @@ fn decrypt_file_jni<'a>(
     dek: JByteArray<'a>,
     decrypt: DecryptFileFn,
 ) -> JObject<'a> {
+    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
     let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => b,
+        Ok(b) => Zeroizing::new(b),
         Err(_) => {
             return make_native_result(
                 &mut env,

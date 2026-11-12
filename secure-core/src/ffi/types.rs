@@ -1,6 +1,8 @@
 use std::ffi::CString;
 use std::os::raw::c_char;
 
+use zeroize::Zeroize;
+
 use crate::error::SecureCoreError;
 
 // ── Status codes ────────────────────────────────────────────────────────
@@ -39,16 +41,25 @@ impl FfiBuffer {
 
     /// Hands `v` over to the caller as a boxed slice of exactly `v.len()` bytes.
     ///
-    /// The `Vec`'s spare capacity is dropped first (`into_boxed_slice`), so
-    /// `secure_core_free_buffer` can rebuild the allocation from `ptr` and
-    /// `len` alone with the exact layout it was allocated with. An empty
-    /// `Vec` is released here and returned as the null/0 empty buffer, so a
-    /// non-zero capacity can never leak.
-    pub fn from_vec(v: Vec<u8>) -> Self {
+    /// `secure_core_free_buffer` rebuilds the allocation from `ptr` and `len`
+    /// alone, so it must have exactly `len` bytes. When `v` has spare
+    /// capacity, the bytes are copied into an exact allocation and `v` is
+    /// wiped (`Zeroize` on a `Vec` also clears its spare capacity) instead
+    /// of shrinking it in place: a reallocating shrink could leave an unwiped
+    /// copy of a plaintext or a key in freed memory. An empty `Vec` becomes
+    /// the null/0 empty buffer, so a non-zero capacity can never leak.
+    pub fn from_vec(mut v: Vec<u8>) -> Self {
         if v.is_empty() {
+            v.zeroize();
             return Self::empty();
         }
-        let boxed: Box<[u8]> = v.into_boxed_slice();
+        let boxed: Box<[u8]> = if v.len() == v.capacity() {
+            v.into_boxed_slice()
+        } else {
+            let exact = Box::<[u8]>::from(v.as_slice());
+            v.zeroize();
+            exact
+        };
         let len = boxed.len();
         Self {
             ptr: Box::into_raw(boxed) as *mut u8,

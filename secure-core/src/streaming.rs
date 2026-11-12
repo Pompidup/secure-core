@@ -4,6 +4,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 
 use serde::Serialize;
+use zeroize::Zeroizing;
 
 use crate::crypto::{generate_nonce, Dek};
 use crate::error::SecureCoreError;
@@ -122,8 +123,9 @@ fn encrypt_stream_impl<R: Read, W: Write>(
     let cipher = Aes256Gcm::new_from_slice(dek.as_bytes())
         .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
 
-    let mut buf = vec![0u8; CHUNK_SIZE];
-    let mut pending: Option<Vec<u8>> = None;
+    // Plaintext buffers are wiped when dropped or replaced.
+    let mut buf = Zeroizing::new(vec![0u8; CHUNK_SIZE]);
+    let mut pending: Option<Zeroizing<Vec<u8>>> = None;
     let mut chunk_index: u32 = 0;
     let mut total_plaintext: u64 = 0;
     let mut total_ciphertext: u64 = header_bytes.len() as u64;
@@ -154,7 +156,7 @@ fn encrypt_stream_impl<R: Read, W: Write>(
             chunk_index = checked_next_index(chunk_index)?;
         }
 
-        pending = Some(buf[..bytes_read].to_vec());
+        pending = Some(Zeroizing::new(buf[..bytes_read].to_vec()));
         first_iter = false;
 
         if bytes_read < CHUNK_SIZE {
@@ -382,7 +384,7 @@ fn decrypt_chunk(
     chunk_index: u32,
     is_last: bool,
     ciphertext: &[u8],
-) -> Result<Vec<u8>, SecureCoreError> {
+) -> Result<Zeroizing<Vec<u8>>, SecureCoreError> {
     let chunk_nonce = nonce_for_chunk(base_nonce, chunk_index);
     let gcm_nonce = Nonce::from_slice(&chunk_nonce);
     let aad = aad_for_chunk(chunk_index, is_last);
@@ -405,6 +407,7 @@ fn decrypt_chunk(
                 "decryption failed on chunk {chunk_index}: {cause}"
             ))
         })
+        .map(Zeroizing::new)
 }
 
 /// Reads exactly `buf.len()` bytes, or fewer if EOF is reached.

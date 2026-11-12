@@ -220,6 +220,9 @@ unsafe fn decrypt_file_with(
 
 /// Frees a buffer previously allocated by Rust.
 ///
+/// The bytes are wiped before the memory is released, since a buffer may
+/// hold decrypted plaintext or an unwrapped DEK.
+///
 /// After this call the buffer's `ptr` is invalid and must not be used.
 ///
 /// # Safety
@@ -232,9 +235,9 @@ pub unsafe extern "C" fn secure_core_free_buffer(buf: FfiBuffer) {
         // SAFETY: a non-empty buffer comes from FfiBuffer::from_vec, i.e. from
         // Box::<[u8]>::into_raw of exactly `buf.len` bytes. Rebuilding that
         // same boxed slice frees it with the layout it was allocated with.
-        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
-            buf.ptr, buf.len,
-        )));
+        let mut boxed = Box::from_raw(std::ptr::slice_from_raw_parts_mut(buf.ptr, buf.len));
+        zeroize::Zeroize::zeroize(&mut *boxed);
+        drop(boxed);
     }
 }
 
@@ -329,7 +332,7 @@ pub unsafe extern "C" fn secure_core_unwrap_dek_with_passphrase(
     };
 
     match recovery::unwrap_dek_with_passphrase(&wrap, passphrase) {
-        Ok(dek) => FfiResult::ok(dek.to_vec()),
+        Ok(dek) => FfiResult::ok(dek.as_bytes().to_vec()),
         Err(e) => FfiResult::from_error(e),
     }
 }

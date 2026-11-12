@@ -35,7 +35,13 @@ The in-memory cap is deliberately conservative: it ensures the plaintext (and a 
 
 1. **Generation**: The platform generates the 32-byte DEK. Core never generates DEKs.
 2. **Usage**: The platform passes the DEK to core for encrypt/decrypt operations.
-3. **Zeroization**: The `Dek` struct derives `ZeroizeOnDrop` — key bytes are overwritten with zeros when the struct is dropped. For raw `[u8; 32]` keys passed to `encrypt_bytes` / `decrypt_bytes`, the caller is responsible for zeroization.
+3. **Zeroization**: The `Dek` struct derives `ZeroizeOnDrop`, so key bytes are overwritten with zeros when the struct is dropped. For raw `[u8; 32]` keys passed to `encrypt_bytes` / `decrypt_bytes`, the caller is responsible for zeroization. Since 0.6.0 the core also wipes:
+   - the cipher state: the AES-256 key schedule (which starts with the raw DEK) and the GHASH key inside every `Aes256Gcm`, through the `zeroize` features of `aes-gcm`, `aes`, `ghash` and `polyval`;
+   - recovery: `derive_recovery_key` returns `Zeroizing<[u8; 32]>`, `unwrap_dek_with_passphrase` returns a `Dek`, and the intermediate plaintext is wiped;
+   - FFI: every buffer handed out (plaintext, unwrapped DEK, JSON) is wiped by `secure_core_free_buffer` before being freed;
+   - JNI: the heap copies of the DEK and of the plaintext are `Zeroizing`.
+
+   **Not covered:** copies made by the platform (the JVM `byte[]` returned to Kotlin, Swift `Data`), Argon2's internal working memory, and register or stack spills the compiler may create. The `polyval` ARMv8 PMULL backend (opt-in via `--cfg polyval_armv8`) has no wiping `Drop`; default builds use the software backend, which does.
 4. **No persistence**: Core never writes the DEK to disk, logs, or any persistent storage.
 
 ### Building a `Dek` at the FFI/JNI boundary
@@ -48,7 +54,7 @@ key.copy_from_slice(&incoming);
 let dek = Dek::take(&mut key); // `key` is wiped; only the Dek holds the secret now
 ```
 
-`Dek::take(&mut src)` copies the bytes into the returned `Dek` and zeroes `src`, so the temporary stack buffer cannot leak the key after the function returns. Both `ffi/functions.rs` and `jni_bridge.rs` follow this pattern; mobile adapters should too when they build a `Dek` from a transient array.
+`Dek::take(&mut src)` copies the bytes into the returned `Dek` and zeroes `src`, so the temporary stack buffer cannot leak the key after the function returns. Both `ffi/functions.rs` and `jni_bridge.rs` follow this pattern. In JNI, the `Vec<u8>` returned by `convert_byte_array` is a second, heap copy, and is held in `Zeroizing` (since 0.6.0). Mobile adapters should do the same when they build a `Dek` from a transient array.
 
 Use `Dek::new(key)` only when the source is not sensitive (test vectors, constants). It takes the key by value and does not touch any upstream copy.
 
@@ -81,7 +87,7 @@ The `Dek` type implements `Debug` as `Dek([REDACTED])`, preventing accidental ke
 ### Plaintext
 
 - **In-memory**: Plaintext is held in `Vec<u8>` during encryption/decryption. The returned `Vec<u8>` is owned by the caller. Core does not retain internal copies.
-- **Streaming**: Plaintext is processed in 64 KB chunks. Only one chunk is in memory at a time. Each chunk buffer is overwritten by the next read.
+- **Streaming**: Plaintext is processed in 64 KB chunks, and at most two chunks are held at a time (the one being processed plus one look-ahead, needed to authenticate the final chunk). Chunk plaintext buffers are `Zeroizing` and wiped when dropped (since 0.6.0).
 - **Disk writes**: the bytes and stream APIs never touch the filesystem; streaming uses caller-provided `Read`/`Write` traits and the platform controls the destination. The only path that writes plaintext to disk is `decrypt_file` (and its FFI/JNI equivalents), and only to the `output_path` chosen by the platform, which also owns its lifecycle (permissions, `SecureDelete` after use).
 
 ### Ciphertext

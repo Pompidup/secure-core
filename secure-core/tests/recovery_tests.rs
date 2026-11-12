@@ -22,7 +22,7 @@ fn test_wrap_unwrap_passphrase_roundtrip() {
     assert_eq!(wrap.kdf_params.p, 4);
 
     let unwrapped = unwrap_dek_with_passphrase(&wrap, TEST_PASSPHRASE).unwrap();
-    assert_eq!(unwrapped, TEST_DEK);
+    assert_eq!(unwrapped.as_bytes(), &TEST_DEK);
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_argon2_vectors() {
     assert_ne!(key1, key4);
 
     // Verify key is non-zero (sanity)
-    assert_ne!(key1, [0u8; 32]);
+    assert_ne!(*key1, [0u8; 32]);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn test_wrap_serialization_roundtrip() {
     let deserialized: RecoveryWrap = serde_json::from_str(&json).unwrap();
 
     let unwrapped = unwrap_dek_with_passphrase(&deserialized, TEST_PASSPHRASE).unwrap();
-    assert_eq!(unwrapped, TEST_DEK);
+    assert_eq!(unwrapped.as_bytes(), &TEST_DEK);
 }
 
 #[test]
@@ -139,8 +139,8 @@ fn test_unwrapped_dek_is_32_bytes() {
 
     // Dek is [u8; 32] so this is compile-time guaranteed, but assert explicitly
     // to document the contract and catch any future type changes.
-    assert_eq!(unwrapped.len(), 32);
-    assert_eq!(unwrapped, TEST_DEK);
+    assert_eq!(unwrapped.as_bytes().len(), 32);
+    assert_eq!(unwrapped.as_bytes(), &TEST_DEK);
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn test_unwrap_accepts_explicit_schema_version_1_0() {
 
     let round_trip: RecoveryWrap = serde_json::from_value(value).unwrap();
     let unwrapped = unwrap_dek_with_passphrase(&round_trip, TEST_PASSPHRASE).unwrap();
-    assert_eq!(unwrapped, TEST_DEK);
+    assert_eq!(unwrapped.as_bytes(), &TEST_DEK);
 }
 
 #[test]
@@ -191,7 +191,7 @@ fn test_unwrap_defaults_missing_schema_version_to_1_0() {
     assert_eq!(legacy.schema_version, "1.0");
 
     let unwrapped = unwrap_dek_with_passphrase(&legacy, TEST_PASSPHRASE).unwrap();
-    assert_eq!(unwrapped, TEST_DEK);
+    assert_eq!(unwrapped.as_bytes(), &TEST_DEK);
 }
 
 #[test]

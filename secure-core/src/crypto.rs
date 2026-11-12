@@ -344,4 +344,22 @@ mod tests {
         assert_eq!(header.nonce, TV_NONCE);
         assert_eq!(header.algorithm, crate::format::AlgorithmId::Aes256Gcm);
     }
+
+    // ── Cipher state zeroization ────────────────────────────────────
+    // The expanded AES-256 key schedule starts with the raw DEK, and the
+    // GHASH key is derived from it. Both live inside every `Aes256Gcm` and
+    // must be wiped on drop, not only the `Dek` itself.
+
+    #[test]
+    fn test_aes_key_schedule_is_zeroized_on_drop() {
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        assert_zeroize_on_drop::<aes::Aes256>();
+    }
+
+    #[test]
+    fn test_ghash_key_is_wiped_on_drop() {
+        // polyval only implements Drop (which wipes `h`) with its `zeroize`
+        // feature; without it the type holds plain Copy arrays.
+        assert!(std::mem::needs_drop::<polyval::Polyval>());
+    }
 }
