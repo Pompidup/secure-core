@@ -357,15 +357,11 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPass
             }
         };
 
-        let wrap: recovery::RecoveryWrap = match serde_json::from_str(&json_str) {
+        let wrap = match recovery::RecoveryWrap::from_json(&json_str) {
             Ok(w) => w,
             Err(e) => {
-                return make_native_result(
-                    &mut env,
-                    FFI_ERROR_INVALID_PARAM,
-                    None,
-                    Some(&format!("invalid RecoveryWrap JSON: {e}")),
-                )
+                let status = error_to_status(&e);
+                return make_native_result(&mut env, status, None, Some(&e.to_string()));
             }
         };
 
@@ -603,5 +599,28 @@ mod tests {
             FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA,
             FFI_ERROR_INVALID_PARAM
         );
+    }
+
+    /// A malformed recovery JSON must surface as INVALID_FORMAT (1) through
+    /// JNI, exactly like the C FFI, not INVALID_PARAM (5).
+    #[test]
+    fn test_malformed_recovery_json_maps_to_invalid_format_like_the_c_ffi() {
+        let err = recovery::RecoveryWrap::from_json("{").unwrap_err();
+        assert_eq!(error_to_status(&err), FFI_ERROR_INVALID_FORMAT);
+    }
+
+    /// Both boundaries must parse through `RecoveryWrap::from_json`, so they
+    /// cannot drift apart again. Built with concat! so this test's own source
+    /// does not match.
+    #[test]
+    fn test_boundaries_parse_recovery_json_through_the_shared_parser() {
+        let direct = concat!("serde_json::", "from_str");
+        for (name, src) in [
+            ("jni_bridge.rs", include_str!("jni_bridge.rs")),
+            ("ffi/functions.rs", include_str!("ffi/functions.rs")),
+        ] {
+            assert!(!src.contains(direct), "{name} parses JSON directly");
+            assert!(src.contains("RecoveryWrap::from_json"), "{name}");
+        }
     }
 }

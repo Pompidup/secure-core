@@ -46,6 +46,18 @@ pub struct RecoveryWrap {
     pub ciphertext: String,
 }
 
+impl RecoveryWrap {
+    /// Parses a `RecoveryWrap` from its JSON form.
+    ///
+    /// Malformed JSON (syntax, missing or mistyped fields) is reported as
+    /// [`SecureCoreError::InvalidFormat`] (FFI status 1). Both the C FFI and
+    /// the JNI bridge go through this function so they report the same code.
+    pub fn from_json(json: &str) -> Result<Self, SecureCoreError> {
+        serde_json::from_str(json)
+            .map_err(|e| SecureCoreError::InvalidFormat(format!("invalid RecoveryWrap JSON: {e}")))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KdfParams {
     pub m: u32,
@@ -241,5 +253,25 @@ mod tests {
     fn test_derived_recovery_key_is_wiped_on_drop() {
         let key: zeroize::Zeroizing<[u8; 32]> = derive_recovery_key(PASS, &[1u8; 16]).unwrap();
         assert_ne!(*key, [0u8; 32]);
+    }
+
+    // ── JSON parsing shared by the C FFI and the JNI bridge ─────────────
+
+    #[test]
+    fn test_from_json_roundtrips_a_serialized_wrap() {
+        let wrap = wrap_dek_with_passphrase(&[9u8; 32], PASS).unwrap();
+        let json = serde_json::to_string(&wrap).unwrap();
+        assert_eq!(RecoveryWrap::from_json(&json).unwrap(), wrap);
+    }
+
+    #[test]
+    fn test_from_json_reports_malformed_json_as_invalid_format() {
+        for bad in ["", "{", "not json", "[]", r#"{"algo":"x"}"#] {
+            let err = RecoveryWrap::from_json(bad).unwrap_err();
+            assert!(
+                matches!(err, SecureCoreError::InvalidFormat(_)),
+                "{bad:?}: got {err:?}"
+            );
+        }
     }
 }

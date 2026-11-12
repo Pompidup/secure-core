@@ -146,7 +146,7 @@ Parses the `RecoveryWrap` JSON and returns the 32-byte DEK in `data`. Free the r
 
 - `OK`;
 - `INVALID_PARAM`: arguments, base64 fields, sizes or algorithm invalid;
-- `INVALID_FORMAT`: invalid JSON (the JNI bridge reports `INVALID_PARAM` for this case);
+- `INVALID_FORMAT`: invalid JSON (same code through JNI since 0.6.0; before, JNI reported `INVALID_PARAM`);
 - `UNSUPPORTED_RECOVERY_SCHEMA`: bundle created by a newer version, so the app should prompt for an update;
 - `CRYPTO`: wrong passphrase or tampered bundle.
 
