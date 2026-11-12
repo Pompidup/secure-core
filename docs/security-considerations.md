@@ -82,7 +82,7 @@ The `Dek` type implements `Debug` as `Dek([REDACTED])`, preventing accidental ke
 
 - **In-memory**: Plaintext is held in `Vec<u8>` during encryption/decryption. The returned `Vec<u8>` is owned by the caller. Core does not retain internal copies.
 - **Streaming**: Plaintext is processed in 64 KB chunks. Only one chunk is in memory at a time. Each chunk buffer is overwritten by the next read.
-- **No disk writes**: Core never writes plaintext to disk. File I/O uses caller-provided `Read`/`Write` traits; the platform controls the destination.
+- **Disk writes**: the bytes and stream APIs never touch the filesystem; streaming uses caller-provided `Read`/`Write` traits and the platform controls the destination. The only path that writes plaintext to disk is `decrypt_file` (and its FFI/JNI equivalents), and only to the `output_path` chosen by the platform, which also owns its lifecycle (permissions, `SecureDelete` after use).
 
 ### Ciphertext
 

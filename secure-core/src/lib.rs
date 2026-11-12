@@ -8,7 +8,9 @@
 //!
 //! ## Design guarantees
 //!
-//! - **No plaintext on disk**: the core never writes cleartext to persistent storage.
+//! - **No plaintext on disk**: the core never writes cleartext to persistent
+//!   storage, except to the explicit `output_path` of [`api::decrypt_file`],
+//!   which the caller chooses and owns.
 //! - **No secret logging**: the `log` feature only emits operation names and document IDs.
 //! - **Zeroize on drop**: the [`crypto::Dek`] type erases key bytes when dropped.
 

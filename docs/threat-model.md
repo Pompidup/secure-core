@@ -2,7 +2,7 @@
 
 ## Périmètre
 
-Le core Rust `secure-core` est une bibliothèque de chiffrement pure : **bytes in, bytes out**. Il ne connaît ni le système de fichiers, ni le réseau, ni le système d'exploitation hôte. Son unique responsabilité est de transformer des octets en clair en octets chiffrés (et inversement), étant donné une DEK (Data Encryption Key) fournie par l'appelant.
+Le core Rust `secure-core` est une bibliothèque de chiffrement pure : **bytes in, bytes out**. Il ne connaît ni le réseau, ni le système d'exploitation hôte. Il n'accède au système de fichiers que via les wrappers `encrypt_file` / `decrypt_file`, sur les chemins que la plateforme lui donne explicitement. Son unique responsabilité est de transformer des octets en clair en octets chiffrés (et inversement), étant donné une DEK (Data Encryption Key) fournie par l'appelant.
 
 ## Menaces couvertes
 

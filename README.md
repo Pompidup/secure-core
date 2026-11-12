@@ -13,7 +13,7 @@ Pure Rust, bytes-in/bytes-out encryption core designed for mobile platforms (And
 - **C-compatible FFI** for Kotlin/JNI and Swift integration
 - **Recovery** via passphrase-encrypted bundles (Argon2id)
 - **Zeroize on drop** for key material (`Dek` struct)
-- **No plaintext on disk** — guaranteed by design
+- **No plaintext on disk** except the explicit `output_path` of `decrypt_file`, which the platform chooses and owns
 - **No secret logging** — only operation names and document IDs
 
 ## Quick start
@@ -124,7 +124,7 @@ Measured on Apple Silicon, single-threaded (criterion 0.5).
 - Header authenticated as AAD (in-memory); streaming truncation detected via a final-chunk marker, with legacy streams rejected by default
 - Per-chunk nonce derivation (XOR base nonce with chunk index)
 - `Dek` derives `ZeroizeOnDrop` with redacted `Debug`
-- No secrets in logs, no plaintext on disk
+- No secrets in logs; no plaintext written anywhere except `decrypt_file`'s caller-chosen output
 - Weekly `cargo audit` in CI
 
 See [Security considerations](docs/security-considerations.md) and [Threat model](docs/threat-model.md).

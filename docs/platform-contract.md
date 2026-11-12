@@ -118,7 +118,7 @@ Ces garanties sont des invariants de conception. Toute violation est un bug de s
 
 | Interdit | Raison |
 | -------- | ------ |
-| Écrire du clair sur disque | Le core n'a pas accès au système de fichiers. Il retourne des `Vec<u8>`. |
+| Écrire du clair sur disque sans qu'on le lui demande | Les API bytes et stream retournent des `Vec<u8>` ou écrivent dans le `Write` fourni : aucun accès au système de fichiers. Seul `decrypt_file` (C/JNI inclus) écrit du clair, uniquement à l'`output_path` choisi par la plateforme, qui en gère le cycle de vie. |
 | Logger une DEK ou du plaintext | Aucune dépendance de logging. Aucun `println!`, `log::*`, ou `tracing::*` sur des données sensibles. |
 | Dépendre d'Android ou iOS | Zéro dépendance plateforme. Le core compile pour toute target Rust supportée. |
 | Faire des appels réseau | Aucune dépendance réseau. Le core est offline par définition. |

@@ -12,11 +12,12 @@ Le champ `recovery_wrap` dans les metadonnees est reserve pour la V2 : il permet
 
 ### Le core ecrit-il du clair sur disque ?
 
-**Jamais.** C'est une garantie de design :
+**Seulement la ou l'appelant le demande explicitement.** C'est une garantie de design :
 
 - Les fonctions `encrypt_bytes` / `decrypt_bytes` travaillent uniquement en memoire.
 - Les fonctions de streaming (`encrypt_stream` / `decrypt_stream`) utilisent des `Read` / `Write` abstraits — c'est la plateforme qui decide la destination.
-- Le core ne cree jamais de fichiers temporaires contenant du clair.
+- **Exception assumee :** `decrypt_file` (C `secure_core_decrypt_file`, JNI `nativeDecryptFile`) ecrit le document dechiffre a l'`output_path` fourni par la plateforme, par exemple pour un apercu ou un partage. Le chemin, ses permissions et la suppression du fichier ensuite (`SecureDelete`) restent a la charge de la plateforme.
+- En dehors de `decrypt_file`, le core ne cree aucun fichier contenant du clair.
 - Le core ne log jamais de cle, nonce ou plaintext (voir `logging.rs`).
 
 Cette garantie est documentee dans le [contrat plateforme](platform-contract.md).
