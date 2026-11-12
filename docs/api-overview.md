@@ -121,21 +121,64 @@ pub struct DocumentMetadata {
     pub created_at: u64,
     pub plaintext_size: Option<u64>,
     pub ciphertext_size: u64,
-    pub content_hash: Option<[u8; 32]>,
-    pub wrapped_dek: WrappedDek,
+    pub content_hash: Option<[u8; 32]>,   // hex in JSON
+    pub tags: Option<Vec<String>>,
+    pub folder_id: Option<String>,        // None = vault root
+    pub wrapped_dek: WrapsEnvelope,
 }
 
-pub struct WrappedDek {
-    pub device_wrap: Vec<u8>,
-    pub recovery_wrap: Option<Vec<u8>>,  // Reserved for V2
-    pub wrap_algorithm: String,
+/// Canonical wrapped-DEK envelope (see docs/wraps-schema-v1.md).
+pub struct WrapsEnvelope {
+    pub schema_version: String,                 // "1.1"
+    pub device: Option<DeviceWrap>,             // must be Some
+    pub recovery: Option<serde_json::Value>,    // reserved, null in V1
 }
+
+pub struct DeviceWrap {
+    pub algo: String,        // e.g. "AES-256-GCM-KEYSTORE"
+    pub key_alias: String,
+    pub iv: String,          // base64, 12 bytes
+    pub tag: String,         // base64, 16 bytes
+    pub ciphertext: String,  // base64
+}
+
+pub struct FolderMetadata { pub id: String, pub name: String, pub created_at: u64, pub updated_at: u64 }
 
 impl DocumentMetadata {
-    /// Validates required fields are present.
+    /// Validates required fields are present and the envelope is well-formed.
     pub fn validate(&self) -> Result<(), SecureCoreError>;
 }
 ```
+
+### Module `recovery`
+
+Passphrase-based DEK recovery bundles. Format: [docs/recovery-format-v1.md](recovery-format-v1.md).
+
+```rust
+pub const RECOVERY_SCHEMA_VERSION: &str; // "1.0"
+
+pub struct RecoveryWrap {
+    pub schema_version: String,   // defaults to "1.0" when absent (pre-versioning bundles)
+    pub algo: String,             // "AES-256-GCM-ARGON2ID"
+    pub kdf: String,              // "argon2id-v19"
+    pub kdf_params: KdfParams,    // { m: 65536, t: 3, p: 4 }, informational
+    pub salt: String,             // base64, 32 bytes
+    pub iv: String,               // base64, 12 bytes
+    pub tag: String,              // base64, 16 bytes
+    pub ciphertext: String,       // base64, wrapped DEK
+}
+
+/// Argon2id(passphrase, salt) -> 32-byte key. The salt must be >= 16 bytes.
+pub fn derive_recovery_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], SecureCoreError>;
+
+/// Random salt and nonce, Argon2id (64 MiB, t=3, p=4), then AES-256-GCM. The passphrase must be non-empty.
+pub fn wrap_dek_with_passphrase(dek: &[u8; 32], passphrase: &str) -> Result<RecoveryWrap, SecureCoreError>;
+
+/// Rejects an unknown schema_version (UnsupportedRecoverySchema) before any crypto.
+pub fn unwrap_dek_with_passphrase(wrap: &RecoveryWrap, passphrase: &str) -> Result<[u8; 32], SecureCoreError>;
+```
+
+The KDF parameters used for unwrapping are the constants of the declared `schema_version`, never the `kdf_params` read from the bundle, so a bundle cannot weaken them.
 
 ### Module `format`
 
@@ -173,6 +216,7 @@ pub fn validate_nonce(nonce: &[u8]) -> Result<(), SecureCoreError>;
 pub enum SecureCoreError {
     InvalidFormat(String),
     UnsupportedVersion { found: u16, max_supported: u16 },
+    UnsupportedRecoverySchema { found: String },   // FFI status 6
     CryptoError(String),
     IoError(std::io::Error),
     InvalidParameter(String),
@@ -201,7 +245,10 @@ All functions use `extern "C"` ABI. The caller **must** free results via `secure
 | `secure_core_encrypt_bytes(plaintext, len, dek, dek_len) -> FfiResult` | In-memory encrypt |
 | `secure_core_decrypt_bytes(blob, len, dek, dek_len) -> FfiResult` | In-memory decrypt |
 | `secure_core_encrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming encrypt |
-| `secure_core_decrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming decrypt |
+| `secure_core_decrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming decrypt (V1.1 streams) |
+| `secure_core_decrypt_file_allow_legacy(input_path, output_path, dek, dek_len) -> FfiResult` | Migration only: also pre-0.3.0 streams, no truncation detection |
+| `secure_core_wrap_dek_with_passphrase(dek, dek_len, passphrase) -> FfiResult` | Recovery bundle (JSON) from a DEK, blocking (Argon2id) |
+| `secure_core_unwrap_dek_with_passphrase(json, json_len, passphrase) -> FfiResult` | DEK (32 bytes) from a recovery bundle, blocking (Argon2id) |
 | `secure_core_free_buffer(FfiBuffer)` | Free a Rust-allocated buffer |
 | `secure_core_free_result(FfiResult)` | Free an FfiResult and its data |
 

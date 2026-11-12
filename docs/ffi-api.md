@@ -40,6 +40,9 @@ typedef struct {
 | 3    | `FFI_ERROR_CRYPTO`              | Decryption/encryption failure |
 | 4    | `FFI_ERROR_IO`                  | File I/O error                |
 | 5    | `FFI_ERROR_INVALID_PARAM`       | Invalid parameter             |
+| 6    | `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | Recovery bundle `schema_version` not supported by this build (0.4.0+) |
+
+Branch on the code; `error_msg` is diagnostic only. Treat any unknown code as a generic error.
 
 ## Functions
 
@@ -116,6 +119,36 @@ FfiResult secure_core_decrypt_file_allow_legacy(
 
 Same contract as `secure_core_decrypt_file`, but also accepts legacy V1.0 streams (pre-0.3.0, `flags == 0`). **Truncation of legacy input is not detected.** Call it once per legacy file, then re-encrypt with `secure_core_encrypt_file`; never use it for regular document opening.
 
+### `secure_core_wrap_dek_with_passphrase`
+
+```c
+FfiResult secure_core_wrap_dek_with_passphrase(
+    const uint8_t *dek_ptr,
+    size_t         dek_len,
+    const char    *passphrase_ptr
+);
+```
+
+Wraps a 32-byte DEK with a passphrase (Argon2id m=64 MiB, t=3, p=4, then AES-256-GCM) and returns the `RecoveryWrap` as UTF-8 JSON in `data` (see [Recovery format V1](recovery-format-v1.md)). The passphrase must be non-empty, NUL-terminated UTF-8; it is borrowed, never copied. **Blocking** (a few hundred ms): call it off the UI thread. Codes: `OK`, `INVALID_PARAM`, `CRYPTO`.
+
+### `secure_core_unwrap_dek_with_passphrase`
+
+```c
+FfiResult secure_core_unwrap_dek_with_passphrase(
+    const uint8_t *recovery_json_ptr,
+    size_t         recovery_json_len,
+    const char    *passphrase_ptr
+);
+```
+
+Parses the `RecoveryWrap` JSON and returns the 32-byte DEK in `data`. Free the result as soon as the DEK has been handed to the keystore. **Blocking** (Argon2id). Codes:
+
+- `OK`;
+- `INVALID_PARAM`: arguments, base64 fields, sizes or algorithm invalid;
+- `INVALID_FORMAT`: invalid JSON (the JNI bridge reports `INVALID_PARAM` for this case);
+- `UNSUPPORTED_RECOVERY_SCHEMA`: bundle created by a newer version, so the app should prompt for an update;
+- `CRYPTO`: wrong passphrase or tampered bundle.
+
 ### `secure_core_free_buffer`
 
 ```c
@@ -140,7 +173,7 @@ Frees an `FfiResult` and all memory it owns (data buffer + error message). **Mus
 
 3. **Do not free the pointer returned by `secure_core_version`** — it is a static string.
 
-4. **Input pointers are borrowed.** The library does not take ownership of `plaintext_ptr`, `blob_ptr`, `dek_ptr`, or path strings. The caller retains ownership and may free them after the call returns.
+4. **Input pointers are borrowed.** The library does not take ownership of `plaintext_ptr`, `blob_ptr`, `dek_ptr`, `recovery_json_ptr`, `passphrase_ptr`, or path strings. The caller retains ownership and may free them after the call returns.
 
 ## Security Invariants
 

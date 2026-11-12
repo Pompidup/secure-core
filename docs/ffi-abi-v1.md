@@ -51,9 +51,12 @@ typedef struct {
 | 3 | `SECURE_CORE_ERROR_CRYPTO` | `FFI_ERROR_CRYPTO` | Erreur crypto (cle invalide, donnees alterees) |
 | 4 | `SECURE_CORE_ERROR_IO` | `FFI_ERROR_IO` | Erreur d'E/S |
 | 5 | `SECURE_CORE_ERROR_INVALID_PARAM` | `FFI_ERROR_INVALID_PARAM` | Parametre invalide |
+| 6 | `SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | `schema_version` du bundle de recovery non supporte par ce build (ajoute en 0.4.0) |
 
 Les valeurs numeriques sont **gelees**. Aucune valeur existante ne sera reattribuee.
-De nouveaux codes peuvent etre ajoutes (>= 6) en minor version.
+De nouveaux codes peuvent etre ajoutes (>= 7) en minor version. Le caller doit traiter
+tout code inconnu comme une erreur generique, et brancher sur le code, jamais sur
+`error_msg` (diagnostic uniquement).
 
 ---
 
@@ -203,6 +206,54 @@ void secure_core_free_result(SecureCoreResult result);
 | Contrainte | Ne PAS appeler deux fois sur le meme result |
 | Thread-safety | Safe si le result n'est pas accede concurremment |
 
+### secure_core_wrap_dek_with_passphrase
+
+Ajoutee en 0.2.0 (additive).
+
+```c
+SecureCoreResult secure_core_wrap_dek_with_passphrase(
+    const uint8_t *dek_ptr,
+    size_t         dek_len,
+    const char    *passphrase_ptr
+);
+```
+
+| Aspect | Detail |
+|--------|--------|
+| `dek_ptr` | Borrowed, read-only. Ne doit PAS etre NULL |
+| `dek_len` | Doit etre exactement 32 |
+| `passphrase_ptr` | Borrowed, C string null-terminee UTF-8, non vide. Jamais copiee cote Rust : sa zeroisation reste a la charge du caller (`platform-contract.md` section 4) |
+| Retour | `SecureCoreResult` avec le `RecoveryWrap` encode en JSON UTF-8 dans `data` (voir `recovery-format-v1.md`) |
+| Ownership retour | Caller owns, liberer via `secure_core_free_result()` |
+| Thread-safety | Safe. Bloquant : derivation Argon2id (64 MiB, t=3, p=4), de l'ordre de quelques centaines de ms. Ne pas appeler sur le thread UI |
+| Codes possibles | `OK`, `INVALID_PARAM` (DEK, passphrase NULL / vide / non UTF-8), `CRYPTO` |
+
+### secure_core_unwrap_dek_with_passphrase
+
+Ajoutee en 0.2.0 (additive).
+
+```c
+SecureCoreResult secure_core_unwrap_dek_with_passphrase(
+    const uint8_t *recovery_json_ptr,
+    size_t         recovery_json_len,
+    const char    *passphrase_ptr
+);
+```
+
+| Aspect | Detail |
+|--------|--------|
+| `recovery_json_ptr` | Borrowed, read-only, JSON UTF-8 produit par `wrap`. Ne doit PAS etre NULL |
+| `recovery_json_len` | Doit etre > 0 |
+| `passphrase_ptr` | Borrowed, C string null-terminee UTF-8 |
+| Retour | `SecureCoreResult` avec la DEK de 32 octets dans `data` |
+| Ownership retour | Caller owns, liberer via `secure_core_free_result()` des que la DEK a ete copiee dans le keystore |
+| Thread-safety | Safe. Bloquant (Argon2id), comme `wrap` |
+| Codes possibles | `OK`, `INVALID_PARAM` (arguments, champs base64 ou tailles invalides, algo inconnu), `INVALID_FORMAT` (JSON invalide), `UNSUPPORTED_RECOVERY_SCHEMA` (`schema_version` inconnu), `CRYPTO` (mauvaise passphrase ou bundle altere) |
+
+Note : cote JNI (`nativeUnwrapDekWithPassphrase`), un JSON invalide remonte aujourd'hui
+`INVALID_PARAM` (5), et non `INVALID_FORMAT` (1) comme en C. La plateforme Android doit
+traiter les deux comme « bundle illisible ».
+
 ---
 
 ## 4. Thread-safety
@@ -231,6 +282,6 @@ Il est safe d'appeler `secure_core_encrypt_bytes` depuis N threads simultanement
 
 - **Les signatures de ce header sont stables pour toute la serie v1.x.**
 - Un changement de signature, de layout de struct ou de semantique de code de retour = **nouveau major** (v2.0.0).
-- De nouveaux codes de retour (>= 6) peuvent etre ajoutes en minor.
+- De nouveaux codes de retour (>= 7) peuvent etre ajoutes en minor.
 - De nouvelles fonctions peuvent etre ajoutees en minor (jamais de suppression).
 - Le fichier `include/secure_core.h` est le contrat de reference. Un test CI verifie sa synchronisation.
