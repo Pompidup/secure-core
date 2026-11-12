@@ -57,7 +57,9 @@ jobs:
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/libsecure_core.so dist/libsecure_core-${{ matrix.abi }}.so
-          sha256sum dist/libsecure_core-${{ matrix.abi }}.so > dist/libsecure_core-${{ matrix.abi }}.so.sha256
+          # Hash from inside dist/ so the .sha256 names the bare file and
+          # `sha256sum -c` works where the asset is downloaded.
+          (cd dist && sha256sum libsecure_core-${{ matrix.abi }}.so > libsecure_core-${{ matrix.abi }}.so.sha256)
 
       - uses: actions/upload-artifact@v6
         with:
