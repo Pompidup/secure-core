@@ -68,7 +68,9 @@ a new major version.
 - Any change that causes an existing `.enc` V1 file to fail decryption
 
 ### What is NOT a breaking change:
-- Adding new flag bits (readers must ignore unknown flags)
+- Adding new flag bits for **in-memory** blobs (readers must ignore unknown flags: the header is authenticated)
+
+Since 0.6.0, unknown flag bits in a **stream** header are rejected (`InvalidFormat`), because the stream header is not authenticated. A new streaming flag therefore requires readers that know it: it is additive for writers, but not readable by older streaming readers.
 - Adding new algorithm IDs (readers reject unknown algorithms gracefully)
 - Extending the header via `header_length` field (forward compatibility)
 - Adding a new sibling directory in `testdata/compat/` (e.g. `v1_1/stream/`) for newly
