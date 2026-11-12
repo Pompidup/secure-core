@@ -8,9 +8,9 @@ This document describes the security properties, assumptions, and limits of the 
 
 ### In-memory encryption (`encrypt_bytes`)
 
-Each call generates a fresh 96-bit random nonce via the OS CSPRNG (`rand::rng()`). The nonce is embedded in the `.enc` V1 header.
+Each call generates a fresh 96-bit random nonce with `rand::rng()`, i.e. rand's `ThreadRng`: a ChaCha-based CSPRNG seeded, and periodically reseeded, from the OS entropy source (`getrandom`). It is not a direct OS call per nonce, but it is cryptographically secure under the same assumption (threat model, hypothesis 3). The nonce is embedded in the `.enc` V1 header.
 
-**Collision bound**: With 96-bit random nonces under a single key, the birthday bound gives ~2^48 encryptions before a 50% collision probability. For mobile usage patterns (even millions of documents), the risk is negligible.
+**Collision bound**: With 96-bit random nonces under a single key, the birthday bound gives ~2^48 encryptions before a 50% collision probability. The relevant budget is the NIST SP 800-38D one: at most **2^32** random-nonce invocations per key, to keep the collision probability below 2^-32. With one DEK per document (the platform's practice), a key sees one in-memory encryption, or one stream base nonce, per document version, so this bound is never approached.
 
 **Requirement**: The platform MUST NOT reuse the same DEK across independent key-wrapping domains without understanding this bound.
 
@@ -102,9 +102,9 @@ The `Dek` type implements `Debug` as `Dek([REDACTED])`, preventing accidental ke
 
 | Parameter | Limit | Rationale |
 |---|---|---|
-| Max plaintext (in-memory) | 4 GB | Prevents OOM on mobile devices |
-| Max stream chunks | 2^32 | Nonce derivation uses 32-bit chunk index |
-| Max stream size | ~256 TB | 2^32 chunks x 64 KB |
+| Max plaintext (in-memory) | 4 GiB on 64-bit, 2 GiB on 32-bit (`armeabi-v7a`) | Prevents OOM on mobile devices (`crypto::MAX_PLAINTEXT_SIZE`) |
+| Max stream chunks | 2^31 − 1 (`0x7FFF_FFFF`) | 32-bit chunk index whose top bit is reserved as the V1.1 final-chunk marker (`streaming::MAX_STREAM_CHUNKS`) |
+| Max stream size | ~128 TiB | (2^31 − 1) chunks × 64 KiB (`streaming::MAX_STREAM_PLAINTEXT_SIZE`) |
 | Nonce size | 96 bits (12 bytes) | AES-GCM standard |
 | Key size | 256 bits (32 bytes) | AES-256 |
 | Auth tag size | 128 bits (16 bytes) | Full GCM tag |
@@ -126,6 +126,6 @@ These are explicitly the platform's responsibility (see [platform contract](plat
 ## 6. Known Limitations
 
 1. **No memory locking**: DEK bytes may be paged to swap. Platforms should use `mlock` if available.
-2. **No side-channel hardening**: AES-GCM uses AES-NI where available (hardware constant-time), but software fallback on older hardware may be vulnerable to cache-timing attacks.
+2. **Side channels**: on x86/x86_64, AES and GHASH use AES-NI/CLMUL when available. On ARM (Android, iOS) the default build uses RustCrypto's **software** backends: bitsliced ("fixsliced") AES and a software POLYVAL, both designed to be constant-time, so there is no table-lookup cache-timing leak, but they are slower than hardware AES. Hardware ARMv8 AES/PMULL is only used when building with `--cfg aes_armv8` / `--cfg polyval_armv8`. No protection is claimed against power or EM analysis (threat model).
 3. **No forward secrecy**: Compromise of a DEK exposes all data encrypted with that key. The platform should rotate DEKs per-document.
-4. **GCM nonce reuse is catastrophic**: If the same (key, nonce) pair is ever reused, GCM authentication is broken and key material may leak. The random nonce generation makes this statistically negligible but the platform must never inject duplicate nonces via the test-vectors API.
+4. **GCM nonce reuse is catastrophic**: if the same (key, nonce) pair is ever reused, the XOR of the two plaintexts leaks, and the GHASH authentication key `H` can be recovered, which lets an attacker forge valid ciphertexts under that key. The AES key itself is not revealed. Random nonce generation makes reuse statistically negligible, but the platform must never inject duplicate nonces through the test-vectors API (`_test-vectors` must never be enabled in production builds).
