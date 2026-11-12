@@ -437,3 +437,46 @@ fn test_legacy_stream_without_flag_is_rejected_by_default() {
         "got: {err:?}"
     );
 }
+
+// ── Header version must be one this build knows ──────────────────────
+// No writer ever produced version 0. Accepting it widened the set of
+// malformed inputs, and in streaming the version byte is not authenticated.
+
+#[test]
+fn test_header_version_0_is_rejected() {
+    let mut bytes = EncHeader::new_v1([0u8; 12]).to_bytes();
+    bytes[4] = 0;
+    bytes[5] = 0;
+    let err = EncHeader::from_bytes(&bytes).unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::UnsupportedVersion { found: 0, .. }),
+        "got: {err:?}"
+    );
+}
+
+#[test]
+fn test_stream_with_header_version_0_is_rejected() {
+    let dek = Dek::new(TEST_KEY);
+    let mut blob = encrypt_to_vec(&random_bytes(CHUNK_SIZE + 3), &dek);
+    blob[4] = 0;
+    let mut out = Vec::new();
+    let err = secure_core::streaming::decrypt_stream(std::io::Cursor::new(&blob), &mut out, &dek)
+        .unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::UnsupportedVersion { found: 0, .. }),
+        "got: {err:?}"
+    );
+    assert!(out.is_empty());
+}
+
+#[test]
+fn test_bytes_blob_with_header_version_0_is_rejected_as_unsupported() {
+    let key = TEST_KEY;
+    let mut blob = secure_core::crypto::encrypt_bytes(b"version zero", &key).unwrap();
+    blob[4] = 0;
+    let err = secure_core::crypto::decrypt_bytes(&blob, &key).unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::UnsupportedVersion { found: 0, .. }),
+        "got: {err:?}"
+    );
+}
