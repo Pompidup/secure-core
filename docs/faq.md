@@ -47,7 +47,7 @@ Cas couverts :
 - **Reordonnancement de chunks** (streaming) → erreur d'authentification (le chunk index fait partie de l'AAD)
 - **Mauvaise cle** → erreur d'authentification
 
-Le core ne retourne jamais de plaintext partiellement dechiffre. C'est tout ou rien.
+`decrypt_bytes` et `decrypt_file` sont tout ou rien. `decrypt_file` ecrit dans un fichier temporaire cache (meme dossier, droits proprietaire seul), renomme sur `output_path` seulement quand tout le stream est authentifie. En cas d'echec, le temporaire est supprime et un `output_path` existant n'est pas modifie. Exception : `decrypt_stream` ecrit dans le `Write` fourni par l'appelant au fil des chunks authentifies ; en cas d'erreur, c'est a l'appelant de jeter ce qu'il a recu.
 
 ---
 

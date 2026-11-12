@@ -198,3 +198,102 @@ fn test_api_roundtrip_exact_chunk_boundary() {
     let result = std::fs::read(decrypted_file.path()).unwrap();
     assert_eq!(result, plaintext);
 }
+
+// ── No plaintext left behind on failure ──────────────────────────────
+// decrypt_file must never leave decrypted bytes on disk when it fails: the
+// output is written to a temporary sibling and only moved into place once
+// the whole stream has been authenticated.
+
+/// Encrypts `plaintext` to `<dir>/doc.enc` and flips one bit in the tag of
+/// the last chunk, so that every chunk but the last one decrypts.
+fn tampered_last_chunk(dir: &std::path::Path, plaintext: &[u8], dek: &Dek) -> std::path::PathBuf {
+    let plain = dir.join("plain.bin");
+    let enc = dir.join("doc.enc");
+    std::fs::write(&plain, plaintext).unwrap();
+    encrypt_file(&plain, &enc, dek).unwrap();
+    let mut blob = std::fs::read(&enc).unwrap();
+    let last = blob.len() - 1;
+    blob[last] ^= 0x01;
+    std::fs::write(&enc, &blob).unwrap();
+    enc
+}
+
+/// Entries of `dir` other than the ones the test created itself.
+fn leftovers(dir: &std::path::Path, known: &[&str]) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| !known.contains(&n.as_str()))
+        .collect()
+}
+
+#[test]
+fn test_decrypt_file_failure_leaves_no_plaintext_on_disk() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    let enc = tampered_last_chunk(dir.path(), &random_bytes(CHUNK_SIZE * 3 - 50), &dek);
+    let out = dir.path().join("out.pdf");
+
+    let err = decrypt_file(&enc, &out, &dek).unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::CryptoError(_)),
+        "got: {err:?}"
+    );
+    assert!(
+        !out.exists(),
+        "no output file may exist after a failed decryption"
+    );
+    assert_eq!(
+        leftovers(dir.path(), &["plain.bin", "doc.enc"]),
+        Vec::<String>::new(),
+        "no temporary file may be left behind"
+    );
+}
+
+#[test]
+fn test_decrypt_file_failure_keeps_existing_output_untouched() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    let enc = tampered_last_chunk(dir.path(), &random_bytes(CHUNK_SIZE * 2 + 9), &dek);
+    let out = dir.path().join("out.pdf");
+    std::fs::write(&out, b"previous content").unwrap();
+
+    decrypt_file(&enc, &out, &dek).unwrap_err();
+    assert_eq!(std::fs::read(&out).unwrap(), b"previous content");
+}
+
+#[test]
+fn test_decrypt_file_success_replaces_existing_output() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    let plaintext = random_bytes(CHUNK_SIZE + 3);
+    let (plain, enc, out) = (
+        dir.path().join("plain.bin"),
+        dir.path().join("doc.enc"),
+        dir.path().join("out.pdf"),
+    );
+    std::fs::write(&plain, &plaintext).unwrap();
+    std::fs::write(&out, b"stale").unwrap();
+    encrypt_file(&plain, &enc, &dek).unwrap();
+
+    decrypt_file(&enc, &out, &dek).unwrap();
+    assert_eq!(std::fs::read(&out).unwrap(), plaintext);
+    assert_eq!(
+        leftovers(dir.path(), &["plain.bin", "doc.enc", "out.pdf"]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn test_encrypt_file_failure_leaves_no_partial_ciphertext() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    // A directory as input: opening succeeds on unix but reading fails.
+    let input = dir.path().join("not-a-file");
+    std::fs::create_dir(&input).unwrap();
+    let out = dir.path().join("doc.enc");
+
+    encrypt_file(&input, &out, &dek).unwrap_err();
+    assert!(!out.exists());
+    assert_eq!(leftovers(dir.path(), &["not-a-file"]), Vec::<String>::new());
+}

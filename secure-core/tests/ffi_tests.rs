@@ -515,7 +515,10 @@ fn test_ffi_decrypt_file_rejects_downgraded_stream() {
     assert_eq!(r.status, FFI_ERROR_INVALID_FORMAT);
     // SAFETY: r was returned by secure_core_decrypt_file and is freed once.
     unsafe { secure_core_free_result(r) };
-    assert_eq!(std::fs::metadata(&out).unwrap().len(), 0);
+    assert!(
+        !out.exists(),
+        "a rejected stream must not create the output file"
+    );
 }
 
 #[cfg(feature = "_test-vectors")]
