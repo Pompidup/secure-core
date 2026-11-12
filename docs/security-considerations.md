@@ -41,7 +41,7 @@ The in-memory cap is deliberately conservative: it ensures the plaintext (and a 
    - FFI: every buffer handed out (plaintext, unwrapped DEK, JSON) is wiped by `secure_core_free_buffer` before being freed;
    - JNI: the heap copies of the DEK and of the plaintext are `Zeroizing`.
 
-   **Not covered:** copies made by the platform (the JVM `byte[]` returned to Kotlin, Swift `Data`), Argon2's internal working memory, and register or stack spills the compiler may create. The `polyval` ARMv8 PMULL backend (opt-in via `--cfg polyval_armv8`) has no wiping `Drop`; default builds use the software backend, which does.
+   **Not covered:** copies made by the platform (the JVM `byte[]` returned to Kotlin, Swift `Data`), Argon2's internal working memory, and register or stack spills the compiler may create. The GHASH key is wiped only when `polyval` uses its software backend, which is the case for every shipped mobile binary (Android arm64-v8a / armeabi-v7a, iOS arm64). With polyval 0.6.2, the runtime-dispatch wrapper used on x86/x86_64 (Intel iOS simulator, desktop, CI) and with `--cfg polyval_armv8` holds the backend in `ManuallyDrop` without a `Drop` of its own, so the GHASH key is **not** wiped on those targets. polyval 0.6.2 is the latest version compatible with `aes-gcm` 0.10.
 4. **No persistence**: Core never writes the DEK to disk, logs, or any persistent storage.
 
 ### Building a `Dek` at the FFI/JNI boundary
