@@ -38,7 +38,7 @@ pub fn encrypt_file(
     output_path: &Path,
     dek: &Dek,
 ) -> Result<EncryptResult, SecureCoreError> {
-    let input = File::open(input_path)?;
+    let input = open_input_distinct_from(input_path, output_path)?;
     let (stream_meta, ciphertext_size) =
         write_atomically(output_path, |output| encrypt_stream(input, output, dek))?;
 
@@ -85,7 +85,7 @@ pub fn decrypt_file(
     output_path: &Path,
     dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError> {
-    let input = File::open(input_path)?;
+    let input = open_input_distinct_from(input_path, output_path)?;
     write_atomically(output_path, |output| decrypt_stream(input, output, dek)).map(|(m, _)| m)
 }
 
@@ -98,11 +98,55 @@ pub fn decrypt_file_allow_legacy(
     output_path: &Path,
     dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError> {
-    let input = File::open(input_path)?;
+    let input = open_input_distinct_from(input_path, output_path)?;
     write_atomically(output_path, |output| {
         decrypt_stream_allow_legacy(input, output, dek)
     })
     .map(|(m, _)| m)
+}
+
+/// Opens `input_path` and checks that `output_path` does not designate the
+/// same file, whatever the spelling (same path, `..`, symlink, hard link).
+/// Writing a document onto itself would replace it with its own encryption
+/// (or decryption) while the old bytes linger in the storage blocks, so the
+/// core refuses it with `InvalidParameter`.
+fn open_input_distinct_from(
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<File, SecureCoreError> {
+    let input = File::open(input_path)?;
+    let output_meta = match fs::metadata(output_path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(input),
+        Err(e) => return Err(e.into()),
+    };
+    if is_same_file(&input.metadata()?, &output_meta, input_path, output_path)? {
+        return Err(SecureCoreError::InvalidParameter(
+            "input_path and output_path refer to the same file".into(),
+        ));
+    }
+    Ok(input)
+}
+
+#[cfg(unix)]
+fn is_same_file(
+    input: &fs::Metadata,
+    output: &fs::Metadata,
+    _input_path: &Path,
+    _output_path: &Path,
+) -> Result<bool, SecureCoreError> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(input.dev() == output.dev() && input.ino() == output.ino())
+}
+
+#[cfg(not(unix))]
+fn is_same_file(
+    _input: &fs::Metadata,
+    _output: &fs::Metadata,
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<bool, SecureCoreError> {
+    Ok(fs::canonicalize(input_path)? == fs::canonicalize(output_path)?)
 }
 
 /// Runs `write` against a fresh temporary file next to `output_path`, then
