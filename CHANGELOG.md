@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anyhow` 1.0.102 → 1.0.104 (RUSTSEC-2026-0190). Both are dev/bench-only
   dependencies (via `criterion`); the shipped library is unaffected. Restores a
   clean `cargo audit`.
+- FFI: `secure_core_free_buffer` / `secure_core_free_result` released buffers with a
+  wrong allocation size whenever the returned `Vec` had spare capacity (`decrypt_bytes`,
+  file results, `wrap_dek_with_passphrase`). That is undefined behaviour, masked by
+  `malloc`/`free` but heap corruption under a size-aware allocator. Buffers are now exact
+  boxed slices. Empty results are always `ptr = NULL, len = 0`, as the header documents,
+  which also fixes a small leak. ABI unchanged.
 
 ## [0.4.0] - 2026-06-29
 
