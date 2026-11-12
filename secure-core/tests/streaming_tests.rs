@@ -207,7 +207,7 @@ fn test_stream_truncation_of_last_chunk_is_detected() {
 
 #[cfg(feature = "_test-vectors")]
 #[test]
-fn test_legacy_stream_without_flag_still_decrypts() {
+fn test_legacy_stream_without_flag_decrypts_with_allow_legacy() {
     use std::io::Cursor;
 
     let dek = Dek::new(TEST_KEY);
@@ -226,8 +226,46 @@ fn test_legacy_stream_without_flag_still_decrypts() {
     assert_eq!(header.flags & FLAG_STREAM_FINAL_CHUNK, 0);
 
     let mut decrypted = Vec::new();
-    secure_core::streaming::decrypt_stream(Cursor::new(&encrypted), &mut decrypted, &dek).unwrap();
+    secure_core::streaming::decrypt_stream_allow_legacy(
+        Cursor::new(&encrypted),
+        &mut decrypted,
+        &dek,
+    )
+    .unwrap();
     assert_eq!(decrypted, plaintext);
+}
+
+#[cfg(feature = "_test-vectors")]
+#[test]
+fn test_decrypt_file_allow_legacy_migrates_legacy_file() {
+    let dek = Dek::new(TEST_KEY);
+    let plaintext = random_bytes(CHUNK_SIZE * 2 + 9);
+    let mut legacy = Vec::new();
+    secure_core::streaming::encrypt_stream_legacy_v1_test(
+        std::io::Cursor::new(&plaintext),
+        &mut legacy,
+        &dek,
+    )
+    .unwrap();
+    let legacy_file = write_temp_file(&legacy);
+
+    // Default reader refuses it...
+    let out = NamedTempFile::new().unwrap();
+    let err = decrypt_file(legacy_file.path(), out.path(), &dek).unwrap_err();
+    assert!(
+        matches!(err, SecureCoreError::InvalidFormat(_)),
+        "got: {err:?}"
+    );
+
+    // ...the explicit migration path decrypts it, and re-encryption yields V1.1.
+    secure_core::api::decrypt_file_allow_legacy(legacy_file.path(), out.path(), &dek).unwrap();
+    assert_eq!(std::fs::read(out.path()).unwrap(), plaintext);
+
+    let migrated = NamedTempFile::new().unwrap();
+    encrypt_file(out.path(), migrated.path(), &dek).unwrap();
+    let roundtrip = NamedTempFile::new().unwrap();
+    decrypt_file(migrated.path(), roundtrip.path(), &dek).unwrap();
+    assert_eq!(std::fs::read(roundtrip.path()).unwrap(), plaintext);
 }
 
 #[test]
@@ -292,7 +330,10 @@ fn test_stream_truncation_with_final_flag_cleared_is_rejected() {
         matches!(err, SecureCoreError::InvalidFormat(_)),
         "downgraded truncated stream must be rejected, got: {err:?}"
     );
-    assert!(out.is_empty(), "no plaintext may be emitted before rejection");
+    assert!(
+        out.is_empty(),
+        "no plaintext may be emitted before rejection"
+    );
 }
 
 #[test]
@@ -303,12 +344,9 @@ fn test_stream_header_only_with_final_flag_cleared_is_rejected() {
     clear_final_flag(&mut header_only);
 
     let mut out = Vec::new();
-    let err = secure_core::streaming::decrypt_stream(
-        std::io::Cursor::new(&header_only),
-        &mut out,
-        &dek,
-    )
-    .unwrap_err();
+    let err =
+        secure_core::streaming::decrypt_stream(std::io::Cursor::new(&header_only), &mut out, &dek)
+            .unwrap_err();
     assert!(
         matches!(err, SecureCoreError::InvalidFormat(_)),
         "a stream stripped of every chunk must be rejected, got: {err:?}"
@@ -336,6 +374,43 @@ fn test_decrypt_file_rejects_downgraded_stream_and_writes_no_plaintext() {
         "got: {err:?}"
     );
     assert_eq!(std::fs::metadata(decrypted_file.path()).unwrap().len(), 0);
+}
+
+#[test]
+fn test_allow_legacy_decrypts_v1_1_streams() {
+    let dek = Dek::new(TEST_KEY);
+    let plaintext = random_bytes(CHUNK_SIZE * 2 + 1);
+    let blob = encrypt_to_vec(&plaintext, &dek);
+
+    let mut out = Vec::new();
+    secure_core::streaming::decrypt_stream_allow_legacy(
+        std::io::Cursor::new(&blob),
+        &mut out,
+        &dek,
+    )
+    .unwrap();
+    assert_eq!(out, plaintext);
+}
+
+#[test]
+fn test_allow_legacy_still_detects_truncation_of_flagged_stream() {
+    let dek = Dek::new(TEST_KEY);
+    let mut blob = encrypt_to_vec(&random_bytes(CHUNK_SIZE * 3), &dek);
+    blob.truncate(last_chunk_offset(&blob));
+
+    let err = secure_core::streaming::decrypt_stream_allow_legacy(
+        std::io::Cursor::new(&blob),
+        &mut Vec::new(),
+        &dek,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            SecureCoreError::InvalidFormat(_) | SecureCoreError::CryptoError(_)
+        ),
+        "got: {err:?}"
+    );
 }
 
 #[cfg(feature = "_test-vectors")]
