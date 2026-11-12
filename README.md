@@ -107,6 +107,7 @@ Every function except `secure_core_version` and the `free_*` functions returns a
 | 4 | `SECURE_CORE_ERROR_IO` | File I/O error |
 | 5 | `SECURE_CORE_ERROR_INVALID_PARAM` | Invalid argument |
 | 6 | `SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | Recovery bundle `schema_version` not supported by this build |
+| 7 | `SECURE_CORE_ERROR_INTERNAL` | Internal error: a panic was caught at the boundary (secure-core bug); nothing was produced (0.6.0+) |
 
 Branch on the status code; `error_msg` is diagnostic only. The Android JNI bridge (`com.securecore.SecureCoreLib`) exposes the same operations and codes.
 

@@ -169,13 +169,15 @@ pub struct RecoveryWrap {
 }
 
 /// Argon2id(passphrase, salt) -> 32-byte key. The salt must be >= 16 bytes.
-pub fn derive_recovery_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], SecureCoreError>;
+/// The key is wiped when dropped.
+pub fn derive_recovery_key(passphrase: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, SecureCoreError>;
 
 /// Random salt and nonce, Argon2id (64 MiB, t=3, p=4), then AES-256-GCM. The passphrase must be non-empty.
 pub fn wrap_dek_with_passphrase(dek: &[u8; 32], passphrase: &str) -> Result<RecoveryWrap, SecureCoreError>;
 
 /// Rejects an unknown schema_version (UnsupportedRecoverySchema) before any crypto.
-pub fn unwrap_dek_with_passphrase(wrap: &RecoveryWrap, passphrase: &str) -> Result<[u8; 32], SecureCoreError>;
+/// Returns a `Dek` (wiped on drop). Since 0.6.0; earlier versions returned `[u8; 32]`.
+pub fn unwrap_dek_with_passphrase(wrap: &RecoveryWrap, passphrase: &str) -> Result<Dek, SecureCoreError>;
 ```
 
 The KDF parameters used for unwrapping are the constants of the declared `schema_version`, never the `kdf_params` read from the bundle, so a bundle cannot weaken them.

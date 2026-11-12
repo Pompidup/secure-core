@@ -41,6 +41,7 @@ typedef struct {
 | 4    | `FFI_ERROR_IO`                  | File I/O error                |
 | 5    | `FFI_ERROR_INVALID_PARAM`       | Invalid parameter             |
 | 6    | `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | Recovery bundle `schema_version` not supported by this build (0.4.0+) |
+| 7    | `FFI_ERROR_INTERNAL`            | Panic caught at the boundary (secure-core bug); nothing produced (0.6.0+) |
 
 Branch on the code; `error_msg` is diagnostic only. Treat any unknown code as a generic error.
 

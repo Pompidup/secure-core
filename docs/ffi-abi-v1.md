@@ -52,9 +52,10 @@ typedef struct {
 | 4 | `SECURE_CORE_ERROR_IO` | `FFI_ERROR_IO` | Erreur d'E/S |
 | 5 | `SECURE_CORE_ERROR_INVALID_PARAM` | `FFI_ERROR_INVALID_PARAM` | Parametre invalide |
 | 6 | `SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | `schema_version` du bundle de recovery non supporte par ce build (ajoute en 0.4.0) |
+| 7 | `SECURE_CORE_ERROR_INTERNAL` | `FFI_ERROR_INTERNAL` | Erreur interne : panic intercepte a la frontiere FFI/JNI (bug secure-core), aucune sortie produite (ajoute en 0.6.0). Possible sur toute fonction retournant un `SecureCoreResult` |
 
 Les valeurs numeriques sont **gelees**. Aucune valeur existante ne sera reattribuee.
-De nouveaux codes peuvent etre ajoutes (>= 7) en minor version. Le caller doit traiter
+De nouveaux codes peuvent etre ajoutes (>= 8) en minor version. Le caller doit traiter
 tout code inconnu comme une erreur generique, et brancher sur le code, jamais sur
 `error_msg` (diagnostic uniquement).
 
@@ -282,6 +283,6 @@ Il est safe d'appeler `secure_core_encrypt_bytes` depuis N threads simultanement
 
 - **Les signatures de ce header sont stables pour toute la serie v1.x.**
 - Un changement de signature, de layout de struct ou de semantique de code de retour = **nouveau major** (v2.0.0).
-- De nouveaux codes de retour (>= 7) peuvent etre ajoutes en minor.
+- De nouveaux codes de retour (>= 8) peuvent etre ajoutes en minor.
 - De nouvelles fonctions peuvent etre ajoutees en minor (jamais de suppression).
 - Le fichier `include/secure_core.h` est le contrat de reference. Un test CI verifie sa synchronisation.
