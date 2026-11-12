@@ -233,15 +233,44 @@ fn checked_next_index(current: u32) -> Result<u32, SecureCoreError> {
     Ok(next)
 }
 
-/// Decrypts chunked data from `input` into `output`.
+/// Decrypts a V1.1 chunked stream from `input` into `output`.
 ///
-/// If the header carries [`FLAG_STREAM_FINAL_CHUNK`], the stream is treated
-/// as V1.1 and truncation at the end is detected via the terminal AAD marker.
-/// Otherwise, the legacy V1.0 layout is accepted for backward compatibility.
+/// The header must carry [`FLAG_STREAM_FINAL_CHUNK`]; truncation is then
+/// detected via the terminal AAD marker. Streams without the flag (legacy
+/// V1.0 layout) are rejected with [`SecureCoreError::InvalidFormat`] before
+/// any plaintext is written: the header is not authenticated in streaming
+/// mode, so honouring a missing flag would let an attacker clear it and have
+/// a truncated V1.1 stream accepted as a legacy one.
+///
+/// Use [`decrypt_stream_allow_legacy`] only to migrate genuine pre-V1.1 files.
 pub fn decrypt_stream<R: Read, W: Write>(
+    input: R,
+    output: W,
+    dek: &Dek,
+) -> Result<StreamMetadata, SecureCoreError> {
+    decrypt_stream_impl(input, output, dek, false)
+}
+
+/// Decrypts a V1.1 stream, **or** a legacy V1.0 stream (no final-chunk flag).
+///
+/// **Security:** legacy V1.0 streams carry no end-of-stream authentication,
+/// and a truncated V1.1 stream whose flag was cleared looks exactly like one.
+/// Truncation of such input is therefore **not** detected. Use this only
+/// for a one-time migration of files written before secure-core 0.3.0:
+/// decrypt them, then re-encrypt with [`encrypt_stream`].
+pub fn decrypt_stream_allow_legacy<R: Read, W: Write>(
+    input: R,
+    output: W,
+    dek: &Dek,
+) -> Result<StreamMetadata, SecureCoreError> {
+    decrypt_stream_impl(input, output, dek, true)
+}
+
+fn decrypt_stream_impl<R: Read, W: Write>(
     mut input: R,
     mut output: W,
     dek: &Dek,
+    allow_legacy: bool,
 ) -> Result<StreamMetadata, SecureCoreError> {
     let mut header_buf = vec![0u8; 25];
     input
@@ -251,6 +280,13 @@ pub fn decrypt_stream<R: Read, W: Write>(
     let header = EncHeader::from_bytes(&header_buf)?;
     let base_nonce = header.nonce;
     let expects_final_marker = header.flags & FLAG_STREAM_FINAL_CHUNK != 0;
+    if !expects_final_marker && !allow_legacy {
+        return Err(SecureCoreError::InvalidFormat(
+            "stream lacks FLAG_STREAM_FINAL_CHUNK (legacy V1.0 layout or downgraded header); \
+             use decrypt_stream_allow_legacy only to migrate pre-0.3.0 files"
+                .into(),
+        ));
+    }
 
     let cipher = Aes256Gcm::new_from_slice(dek.as_bytes())
         .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;

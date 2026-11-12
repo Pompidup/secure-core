@@ -126,7 +126,10 @@ pub unsafe extern "C" fn secure_core_encrypt_file(
     }
 }
 
-/// Decrypts a file using chunked streaming.
+/// Decrypts a V1.1 file using chunked streaming.
+///
+/// Legacy V1.0 streams (no final-chunk flag) are rejected with
+/// `FFI_ERROR_INVALID_FORMAT`; see `secure_core_decrypt_file_allow_legacy`.
 ///
 /// # Safety
 ///
@@ -141,6 +144,55 @@ pub unsafe extern "C" fn secure_core_decrypt_file(
     dek_ptr: *const u8,
     dek_len: usize,
 ) -> FfiResult {
+    decrypt_file_with(
+        input_path_ptr,
+        output_path_ptr,
+        dek_ptr,
+        dek_len,
+        crate::api::decrypt_file,
+    )
+}
+
+/// Decrypts a V1.1 **or legacy V1.0** file. Migration only.
+///
+/// Truncation of legacy input is NOT detected. Use it once to decrypt files
+/// written before secure-core 0.3.0, then re-encrypt them with
+/// `secure_core_encrypt_file`.
+///
+/// # Safety
+///
+/// Same requirements as [`secure_core_decrypt_file`].
+#[no_mangle]
+pub unsafe extern "C" fn secure_core_decrypt_file_allow_legacy(
+    input_path_ptr: *const c_char,
+    output_path_ptr: *const c_char,
+    dek_ptr: *const u8,
+    dek_len: usize,
+) -> FfiResult {
+    decrypt_file_with(
+        input_path_ptr,
+        output_path_ptr,
+        dek_ptr,
+        dek_len,
+        crate::api::decrypt_file_allow_legacy,
+    )
+}
+
+type DecryptFileFn = fn(
+    &Path,
+    &Path,
+    &Dek,
+) -> Result<crate::streaming::StreamMetadata, crate::error::SecureCoreError>;
+
+/// Shared marshalling for the two file-decrypt entry points: validate the
+/// inputs, delegate to `decrypt`, encode the metadata as JSON.
+unsafe fn decrypt_file_with(
+    input_path_ptr: *const c_char,
+    output_path_ptr: *const c_char,
+    dek_ptr: *const u8,
+    dek_len: usize,
+    decrypt: DecryptFileFn,
+) -> FfiResult {
     let Some(dek) = validate_dek(dek_ptr, dek_len) else {
         return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
     };
@@ -154,7 +206,7 @@ pub unsafe extern "C" fn secure_core_decrypt_file(
         );
     };
 
-    match crate::api::decrypt_file(Path::new(input_path), Path::new(output_path), &dek) {
+    match decrypt(Path::new(input_path), Path::new(output_path), &dek) {
         Ok(meta) => {
             let json = format!(
                 "{{\"chunks\":{},\"total_plaintext_bytes\":{},\"total_ciphertext_bytes\":{}}}",

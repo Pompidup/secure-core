@@ -280,7 +280,8 @@ The encrypted output uses a custom binary format:
 [chunk_len 4B][chunk ciphertext + tag]*  (streaming mode)
 ```
 
-- Header is authenticated as AAD (tampering detected)
+- In-memory: the header is authenticated as AAD (tampering detected)
+- Streaming: the header is not in the chunk AAD; streams must carry `FLAG_STREAM_FINAL_CHUNK` (others are rejected unless decrypted through the migration-only `*_allow_legacy` API)
 - AES-256-GCM with 128-bit auth tags
 - Streaming: 64 KB chunks, per-chunk nonces derived via XOR
 

@@ -455,3 +455,126 @@ fn test_ffi_wrap_dek_invalid_params() {
     // SAFETY: freeing result allocated by secure_core FFI.
     unsafe { secure_core_free_result(result) };
 }
+
+// ── File decryption: strict vs explicit legacy ──────────────────────
+
+fn c_path(p: &std::path::Path) -> CString {
+    CString::new(p.to_str().unwrap()).unwrap()
+}
+
+/// Clears FLAG_STREAM_FINAL_CHUNK and drops the last chunk of a V1.1 stream.
+fn downgrade_and_truncate(blob: &mut Vec<u8>) {
+    let mut offset = 25;
+    let mut last = offset;
+    while offset + 4 <= blob.len() {
+        last = offset;
+        let len = u32::from_le_bytes(blob[offset..offset + 4].try_into().unwrap()) as usize;
+        offset += 4 + len;
+    }
+    blob.truncate(last);
+    blob[19] &= !0x01;
+}
+
+#[test]
+fn test_ffi_decrypt_file_rejects_downgraded_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let (plain, enc, out) = (
+        dir.path().join("p"),
+        dir.path().join("e"),
+        dir.path().join("o"),
+    );
+    std::fs::write(&plain, vec![0x5Au8; 64 * 1024 * 3]).unwrap();
+    let dek = make_test_dek();
+
+    // SAFETY: paths are valid NUL-terminated strings, dek is 32 readable bytes.
+    let r = unsafe {
+        secure_core_encrypt_file(
+            c_path(&plain).as_ptr(),
+            c_path(&enc).as_ptr(),
+            dek.as_ptr(),
+            32,
+        )
+    };
+    assert_eq!(r.status, FFI_OK);
+    // SAFETY: r was returned by secure_core_encrypt_file and is freed once.
+    unsafe { secure_core_free_result(r) };
+
+    let mut blob = std::fs::read(&enc).unwrap();
+    downgrade_and_truncate(&mut blob);
+    std::fs::write(&enc, &blob).unwrap();
+
+    // SAFETY: same invariants as above.
+    let r = unsafe {
+        secure_core_decrypt_file(
+            c_path(&enc).as_ptr(),
+            c_path(&out).as_ptr(),
+            dek.as_ptr(),
+            32,
+        )
+    };
+    assert_eq!(r.status, FFI_ERROR_INVALID_FORMAT);
+    // SAFETY: r was returned by secure_core_decrypt_file and is freed once.
+    unsafe { secure_core_free_result(r) };
+    assert_eq!(std::fs::metadata(&out).unwrap().len(), 0);
+}
+
+#[cfg(feature = "_test-vectors")]
+#[test]
+fn test_ffi_decrypt_file_allow_legacy_decrypts_legacy_file() {
+    use secure_core::crypto::Dek;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (enc, out) = (dir.path().join("legacy.enc"), dir.path().join("o"));
+    let dek = make_test_dek();
+    let plaintext = vec![0xC3u8; 64 * 1024 + 77];
+    let mut legacy = Vec::new();
+    secure_core::streaming::encrypt_stream_legacy_v1_test(
+        std::io::Cursor::new(&plaintext),
+        &mut legacy,
+        &Dek::new(dek),
+    )
+    .unwrap();
+    std::fs::write(&enc, &legacy).unwrap();
+
+    // SAFETY: paths are valid NUL-terminated strings, dek is 32 readable bytes.
+    let strict = unsafe {
+        secure_core_decrypt_file(
+            c_path(&enc).as_ptr(),
+            c_path(&out).as_ptr(),
+            dek.as_ptr(),
+            32,
+        )
+    };
+    assert_eq!(strict.status, FFI_ERROR_INVALID_FORMAT);
+    // SAFETY: returned by secure_core_decrypt_file, freed once.
+    unsafe { secure_core_free_result(strict) };
+
+    // SAFETY: same invariants as above.
+    let legacy_ok = unsafe {
+        secure_core_decrypt_file_allow_legacy(
+            c_path(&enc).as_ptr(),
+            c_path(&out).as_ptr(),
+            dek.as_ptr(),
+            32,
+        )
+    };
+    assert_eq!(legacy_ok.status, FFI_OK);
+    // SAFETY: returned by secure_core_decrypt_file_allow_legacy, freed once.
+    unsafe { secure_core_free_result(legacy_ok) };
+    assert_eq!(std::fs::read(&out).unwrap(), plaintext);
+}
+
+#[test]
+fn test_ffi_decrypt_file_allow_legacy_rejects_null_path() {
+    let dek = make_test_dek();
+    let out = CString::new("/tmp/unused").unwrap();
+    // A null input path is the case under test: it must be rejected before
+    // any dereference.
+    // SAFETY: output path and dek are valid; the null input is never read.
+    let r = unsafe {
+        secure_core_decrypt_file_allow_legacy(std::ptr::null(), out.as_ptr(), dek.as_ptr(), 32)
+    };
+    assert_eq!(r.status, FFI_ERROR_INVALID_PARAM);
+    // SAFETY: returned by secure_core_decrypt_file_allow_legacy, freed once.
+    unsafe { secure_core_free_result(r) };
+}

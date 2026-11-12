@@ -9,14 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Migration-only legacy stream decryption: `streaming::decrypt_stream_allow_legacy`,
+  `api::decrypt_file_allow_legacy`, C `secure_core_decrypt_file_allow_legacy` and JNI
+  `nativeDecryptFileAllowLegacy`. Additive ABI. They decrypt pre-0.3.0 streams
+  (`flags == 0`) **without** truncation detection; use them once to re-encrypt such files
+  to V1.1.
+
 ### Changed
 
+- **Behaviour change:** `decrypt_stream`, `api::decrypt_file`, `secure_core_decrypt_file`
+  and `nativeDecryptFile` now reject streams without `FLAG_STREAM_FINAL_CHUNK` with
+  `InvalidFormat` (FFI status `1`), before writing any plaintext. Streams written by
+  secure-core 0.3.0+ are unaffected; pre-0.3.0 streams must be migrated with the
+  `*_allow_legacy` API. No signature or format change, and golden files are unchanged.
 - CI: GitHub Actions moved to Node 24 runtimes (`actions/checkout@v5`,
   `actions/upload-artifact@v6`, `actions/download-artifact@v7`,
   `android-actions/setup-android@v4`) ahead of the Node 20 removal.
 
 ### Security
 
+- Fix a streaming truncation-detection bypass. The stream header is not authenticated,
+  so clearing `FLAG_STREAM_FINAL_CHUNK` made the reader fall back to the legacy path and
+  accept a truncated (or emptied) V1.1 stream as valid. Legacy streams are now rejected
+  by default (see Changed).
 - Lockfile: `crossbeam-epoch` 0.9.18 → 0.9.21 (RUSTSEC-2026-0204) and
   `anyhow` 1.0.102 → 1.0.104 (RUSTSEC-2026-0190). Both are dev/bench-only
   dependencies (via `criterion`); the shipped library is unaffected. Restores a

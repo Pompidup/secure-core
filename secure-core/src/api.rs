@@ -5,7 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::crypto::Dek;
 use crate::error::SecureCoreError;
 use crate::metadata::PartialDocumentMetadata;
-use crate::streaming::{decrypt_stream, encrypt_stream, StreamMetadata};
+use crate::streaming::{
+    decrypt_stream, decrypt_stream_allow_legacy, encrypt_stream, StreamMetadata,
+};
 
 /// Result of a file encryption operation.
 ///
@@ -64,7 +66,10 @@ pub fn encrypt_file(
     })
 }
 
-/// Decrypts a file at `input_path` and writes the plaintext to `output_path`.
+/// Decrypts a V1.1 file at `input_path` and writes the plaintext to `output_path`.
+///
+/// Legacy V1.0 streams (no final-chunk flag) are rejected; see
+/// [`decrypt_stream`].
 pub fn decrypt_file(
     input_path: &Path,
     output_path: &Path,
@@ -73,4 +78,18 @@ pub fn decrypt_file(
     let input = File::open(input_path)?;
     let output = File::create(output_path)?;
     decrypt_stream(input, output, dek)
+}
+
+/// Like [`decrypt_file`], but also accepts legacy V1.0 streams.
+///
+/// **Security:** truncation of legacy input is not detected. Reserved for a
+/// one-time migration of pre-0.3.0 files; see [`decrypt_stream_allow_legacy`].
+pub fn decrypt_file_allow_legacy(
+    input_path: &Path,
+    output_path: &Path,
+    dek: &Dek,
+) -> Result<StreamMetadata, SecureCoreError> {
+    let input = File::open(input_path)?;
+    let output = File::create(output_path)?;
+    decrypt_stream_allow_legacy(input, output, dek)
 }

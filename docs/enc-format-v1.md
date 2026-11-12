@@ -76,12 +76,15 @@ Les blobs produits par `encrypt_stream` portent `flags & FLAG_STREAM_FINAL_CHUNK
 - Au décryptage, le dernier chunk doit valider avec le marqueur ; l'absence est rejetée → `InvalidFormat("V1.1 stream is missing its final chunk")` ou `CryptoError(...)` selon l'endroit de la troncature.
 - Conséquence : `chunk_index` est borné à `0x7FFF_FFFF` (2 147 483 647 chunks × 64 KiB ≈ 128 TiB par stream).
 
-Les blobs produits avant V1.1 (`flags == 0`) restent déchiffrables : `decrypt_stream` détecte l'absence du flag et bascule sur la sémantique legacy (AAD = `chunk_index.to_be_bytes()` pour tous les chunks, pas de détection de troncature).
+**Depuis 0.5.0, un stream sans `FLAG_STREAM_FINAL_CHUNK` est rejeté par défaut** (`decrypt_stream` / `decrypt_file` → `InvalidFormat`, avant toute écriture de clair). En streaming, le header n'entre pas dans l'AAD des chunks, et un chunk non-final V1.1 a exactement l'AAD d'un chunk V1.0. Honorer un flag absent permettrait donc d'effacer le flag d'un stream V1.1 tronqué et de le faire accepter comme un stream legacy.
+
+Les blobs produits avant V1.1 (`flags == 0`, secure-core < 0.3.0) restent lisibles **uniquement** via l'API de migration explicite `decrypt_stream_allow_legacy` / `decrypt_file_allow_legacy` (C : `secure_core_decrypt_file_allow_legacy`, JNI : `nativeDecryptFileAllowLegacy`). Elle applique la sémantique legacy (AAD = `chunk_index.to_be_bytes()` pour tous les chunks) **sans détection de troncature**. À utiliser une seule fois, pour rechiffrer ces fichiers en V1.1.
 
 ### Auth tag
 
 - Le tag GCM de 16 bytes est toujours placé **après** le payload.
-- Le header complet (magic + version + algorithm_id + nonce + flags + header_length) est inclus comme **Additional Authenticated Data (AAD)** dans le calcul GCM. Cela garantit que toute modification du header est détectée.
+- **In-memory** (`encrypt_bytes`) : le header complet (magic + version + algorithm_id + nonce + flags + header_length) est l'**Additional Authenticated Data (AAD)** du calcul GCM. Toute modification du header est détectée.
+- **Streaming** : le header **n'est pas** dans l'AAD. Chaque chunk authentifie seulement son index (+ le marqueur de fin). Le nonce reste protégé de fait, car il dérive les nonces des chunks, mais `version` et `flags` ne sont pas authentifiés. D'où le rejet par défaut des streams sans `FLAG_STREAM_FINAL_CHUNK` ci-dessus. Une future V2 inclura le header dans l'AAD de chaque chunk.
 
 ## Gestion des versions
 
