@@ -416,13 +416,47 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptFile<'a>(
     }
 }
 
+/// Decrypts a V1.1 file. Legacy V1.0 streams are rejected (`INVALID_FORMAT`).
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
     input_path: JString<'a>,
     output_path: JString<'a>,
     dek: JByteArray<'a>,
+) -> JObject<'a> {
+    decrypt_file_jni(env, input_path, output_path, dek, api::decrypt_file)
+}
+
+/// MIGRATION ONLY: decrypts a V1.1 or legacy V1.0 file. Truncation of legacy
+/// input is not detected; re-encrypt the result with `nativeEncryptFile`.
+#[no_mangle]
+pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFileAllowLegacy<'a>(
+    env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    input_path: JString<'a>,
+    output_path: JString<'a>,
+    dek: JByteArray<'a>,
+) -> JObject<'a> {
+    decrypt_file_jni(
+        env,
+        input_path,
+        output_path,
+        dek,
+        api::decrypt_file_allow_legacy,
+    )
+}
+
+type DecryptFileFn =
+    fn(&Path, &Path, &Dek) -> Result<crate::streaming::StreamMetadata, SecureCoreError>;
+
+/// Shared marshalling for the two file-decrypt JNI entry points.
+fn decrypt_file_jni<'a>(
+    mut env: JNIEnv<'a>,
+    input_path: JString<'a>,
+    output_path: JString<'a>,
+    dek: JByteArray<'a>,
+    decrypt: DecryptFileFn,
 ) -> JObject<'a> {
     let dek_bytes = match env.convert_byte_array(&dek) {
         Ok(b) => b,
@@ -476,7 +510,7 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
     key.copy_from_slice(&dek_bytes);
     let dek = Dek::take(&mut key);
 
-    match api::decrypt_file(Path::new(&input_str), Path::new(&output_str), &dek) {
+    match decrypt(Path::new(&input_str), Path::new(&output_str), &dek) {
         Ok(meta) => match serde_json::to_vec(&meta) {
             Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
             Err(e) => make_native_result(
