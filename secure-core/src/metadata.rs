@@ -296,20 +296,31 @@ fn deserialize_optional_hash<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<[u8; 32]>, D::Error> {
     let opt: Option<String> = Option::deserialize(d)?;
     match opt {
-        Some(hex) => {
-            if hex.len() != 64 {
-                return Err(serde::de::Error::custom(
-                    "content_hash must be 64 hex chars",
-                ));
-            }
-            let bytes: Vec<u8> = (0..hex.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(serde::de::Error::custom))
-                .collect::<Result<_, _>>()?;
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            Ok(Some(arr))
-        }
+        Some(hex) => decode_hash_hex(hex.as_bytes())
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom("content_hash must be 64 hex digits")),
         None => Ok(None),
     }
+}
+
+/// Strict hex decoding of a 32-byte hash, working on raw bytes so that
+/// multi-byte UTF-8 input can never hit a char boundary, and accepting
+/// nothing but `[0-9a-fA-F]` (no sign, no whitespace).
+fn decode_hash_hex(hex: &[u8]) -> Option<[u8; 32]> {
+    fn nibble(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            _ => None,
+        }
+    }
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (byte, pair) in out.iter_mut().zip(hex.chunks_exact(2)) {
+        *byte = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    }
+    Some(out)
 }
