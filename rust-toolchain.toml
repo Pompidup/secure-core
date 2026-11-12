@@ -1,3 +1,7 @@
+# Exact toolchain used by CI and to build the released .so / .xcframework.
+# Bump deliberately, in its own `chore(toolchain):` commit, after checking the
+# full CI (clippy lints and generated code can change between releases).
 [toolchain]
-channel = "stable"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]
+profile = "minimal"
