@@ -359,13 +359,9 @@ pub unsafe extern "C" fn secure_core_unwrap_dek_with_passphrase(
             Err(_) => return FfiResult::invalid_param("recovery_json must be valid UTF-8"),
         };
 
-        let wrap: recovery::RecoveryWrap = match serde_json::from_str(json_str) {
+        let wrap = match recovery::RecoveryWrap::from_json(json_str) {
             Ok(w) => w,
-            Err(e) => {
-                return FfiResult::from_error(crate::error::SecureCoreError::InvalidFormat(
-                    format!("invalid RecoveryWrap JSON: {e}"),
-                ))
-            }
+            Err(e) => return FfiResult::from_error(e),
         };
 
         match recovery::unwrap_dek_with_passphrase(&wrap, passphrase) {

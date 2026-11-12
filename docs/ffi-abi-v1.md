@@ -251,9 +251,10 @@ SecureCoreResult secure_core_unwrap_dek_with_passphrase(
 | Thread-safety | Safe. Bloquant (Argon2id), comme `wrap` |
 | Codes possibles | `OK`, `INVALID_PARAM` (arguments, champs base64 ou tailles invalides, algo inconnu), `INVALID_FORMAT` (JSON invalide), `UNSUPPORTED_RECOVERY_SCHEMA` (`schema_version` inconnu), `CRYPTO` (mauvaise passphrase ou bundle altere) |
 
-Note : cote JNI (`nativeUnwrapDekWithPassphrase`), un JSON invalide remonte aujourd'hui
-`INVALID_PARAM` (5), et non `INVALID_FORMAT` (1) comme en C. La plateforme Android doit
-traiter les deux comme « bundle illisible ».
+Note : depuis 0.6.0, le JNI (`nativeUnwrapDekWithPassphrase`) renvoie lui aussi
+`INVALID_FORMAT` (1) pour un JSON invalide, comme le C. Avant 0.6.0 il renvoyait
+`INVALID_PARAM` (5) : une app qui doit lire les deux versions traite 1 et 5 comme
+« bundle illisible ».
 
 ---
 

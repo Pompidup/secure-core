@@ -46,6 +46,18 @@ pub struct RecoveryWrap {
     pub ciphertext: String,
 }
 
+impl RecoveryWrap {
+    /// Parses a `RecoveryWrap` from its JSON form.
+    ///
+    /// Malformed JSON (syntax, missing or mistyped fields) is reported as
+    /// [`SecureCoreError::InvalidFormat`] (FFI status 1). Both the C FFI and
+    /// the JNI bridge go through this function so they report the same code.
+    pub fn from_json(json: &str) -> Result<Self, SecureCoreError> {
+        serde_json::from_str(json)
+            .map_err(|e| SecureCoreError::InvalidFormat(format!("invalid RecoveryWrap JSON: {e}")))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KdfParams {
     pub m: u32,

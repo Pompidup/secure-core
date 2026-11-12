@@ -357,15 +357,11 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPass
             }
         };
 
-        let wrap: recovery::RecoveryWrap = match serde_json::from_str(&json_str) {
+        let wrap = match recovery::RecoveryWrap::from_json(&json_str) {
             Ok(w) => w,
             Err(e) => {
-                return make_native_result(
-                    &mut env,
-                    FFI_ERROR_INVALID_PARAM,
-                    None,
-                    Some(&format!("invalid RecoveryWrap JSON: {e}")),
-                )
+                let status = error_to_status(&e);
+                return make_native_result(&mut env, status, None, Some(&e.to_string()));
             }
         };
 
