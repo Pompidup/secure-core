@@ -297,3 +297,92 @@ fn test_encrypt_file_failure_leaves_no_partial_ciphertext() {
     assert!(!out.exists());
     assert_eq!(leftovers(dir.path(), &["not-a-file"]), Vec::<String>::new());
 }
+
+// ── Input and output must be different files ─────────────────────────
+// Encrypting or decrypting a file onto itself used to truncate it before it
+// was read, destroying the document while reporting success. Even with
+// atomic outputs, "in place" encryption would leave the old plaintext in the
+// storage blocks, so the core refuses it explicitly: same path, symlink and
+// hard link alike.
+
+#[cfg(unix)]
+fn same_file_cases(
+    dir: &std::path::Path,
+) -> Vec<(&'static str, std::path::PathBuf, std::path::PathBuf)> {
+    let doc = dir.join("doc.pdf");
+    std::fs::write(&doc, random_bytes(CHUNK_SIZE + 10)).unwrap();
+    let symlink = dir.join("link.pdf");
+    std::os::unix::fs::symlink(&doc, &symlink).unwrap();
+    let hardlink = dir.join("hard.pdf");
+    std::fs::hard_link(&doc, &hardlink).unwrap();
+    let dotted = dir.join(".").join("doc.pdf");
+    vec![
+        ("same path", doc.clone(), doc.clone()),
+        ("symlink", doc.clone(), symlink),
+        ("hard link", doc.clone(), hardlink),
+        ("equivalent path", doc.clone(), dotted),
+    ]
+}
+
+#[cfg(unix)]
+#[test]
+fn test_encrypt_file_rejects_output_that_is_the_input() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    for (case, input, output) in same_file_cases(dir.path()) {
+        let before = std::fs::read(&input).unwrap();
+        let err = encrypt_file(&input, &output, &dek).unwrap_err();
+        assert!(
+            matches!(err, SecureCoreError::InvalidParameter(_)),
+            "{case}: expected InvalidParameter, got {err:?}"
+        );
+        assert_eq!(
+            std::fs::read(&input).unwrap(),
+            before,
+            "{case}: input must be intact"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_decrypt_file_rejects_output_that_is_the_input() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    let plain = dir.path().join("plain.bin");
+    std::fs::write(&plain, random_bytes(CHUNK_SIZE + 10)).unwrap();
+    let enc = dir.path().join("doc.enc");
+    encrypt_file(&plain, &enc, &dek).unwrap();
+    let before = std::fs::read(&enc).unwrap();
+    let link = dir.path().join("link.enc");
+    std::os::unix::fs::symlink(&enc, &link).unwrap();
+
+    for output in [enc.clone(), link] {
+        let err = decrypt_file(&enc, &output, &dek).unwrap_err();
+        assert!(
+            matches!(err, SecureCoreError::InvalidParameter(_)),
+            "got {err:?}"
+        );
+        assert_eq!(
+            std::fs::read(&enc).unwrap(),
+            before,
+            "ciphertext must be intact"
+        );
+    }
+}
+
+#[test]
+fn test_file_apis_accept_distinct_files_in_the_same_directory() {
+    let dek = Dek::new(TEST_KEY);
+    let dir = tempfile::tempdir().unwrap();
+    let (plain, enc, out) = (
+        dir.path().join("a"),
+        dir.path().join("b"),
+        dir.path().join("c"),
+    );
+    let data = random_bytes(1000);
+    std::fs::write(&plain, &data).unwrap();
+    encrypt_file(&plain, &enc, &dek).unwrap();
+    decrypt_file(&enc, &out, &dek).unwrap();
+    assert_eq!(std::fs::read(&out).unwrap(), data);
+}
