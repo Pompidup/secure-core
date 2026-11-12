@@ -2,8 +2,9 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::Argon2;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
+use crate::crypto::Dek;
 use crate::error::SecureCoreError;
 
 /// Argon2id V1 parameters.
@@ -53,7 +54,13 @@ pub struct KdfParams {
 }
 
 /// Derives a 256-bit key from a passphrase and salt using Argon2id.
-pub fn derive_recovery_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], SecureCoreError> {
+///
+/// The key is returned in a [`Zeroizing`] wrapper, so it is wiped when the
+/// caller drops it.
+pub fn derive_recovery_key(
+    passphrase: &str,
+    salt: &[u8],
+) -> Result<Zeroizing<[u8; 32]>, SecureCoreError> {
     if salt.len() < 16 {
         return Err(SecureCoreError::InvalidParameter(
             "salt must be at least 16 bytes".into(),
@@ -65,9 +72,9 @@ pub fn derive_recovery_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], Se
 
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     argon2
-        .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+        .hash_password_into(passphrase.as_bytes(), salt, key.as_mut())
         .map_err(|e| SecureCoreError::CryptoError(format!("argon2 derivation: {e}")))?;
 
     Ok(key)
@@ -96,14 +103,12 @@ pub fn wrap_dek_with_passphrase(
     rand::RngCore::fill_bytes(&mut rand::rng(), &mut salt);
     rand::RngCore::fill_bytes(&mut rand::rng(), &mut nonce);
 
-    // Derive key
-    let mut recovery_key = derive_recovery_key(passphrase, &salt)?;
+    // Derive key (wiped when `recovery_key` drops)
+    let recovery_key = derive_recovery_key(passphrase, &salt)?;
 
     // Encrypt DEK with recovery key
-    let cipher = Aes256Gcm::new_from_slice(&recovery_key)
+    let cipher = Aes256Gcm::new_from_slice(recovery_key.as_ref())
         .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
-
-    recovery_key.zeroize();
 
     let gcm_nonce = Nonce::from_slice(&nonce);
     let ciphertext_with_tag = cipher
@@ -132,10 +137,13 @@ pub fn wrap_dek_with_passphrase(
 }
 
 /// Unwraps a DEK from a recovery wrap using the passphrase.
+///
+/// Returns a [`Dek`], which is wiped on drop; the intermediate plaintext
+/// buffer is wiped as well.
 pub fn unwrap_dek_with_passphrase(
     wrap: &RecoveryWrap,
     passphrase: &str,
-) -> Result<[u8; 32], SecureCoreError> {
+) -> Result<Dek, SecureCoreError> {
     use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine;
 
@@ -184,13 +192,11 @@ pub fn unwrap_dek_with_passphrase(
         )));
     }
 
-    // Derive key
-    let mut recovery_key = derive_recovery_key(passphrase, &salt)?;
+    // Derive key (wiped when `recovery_key` drops)
+    let recovery_key = derive_recovery_key(passphrase, &salt)?;
 
-    let cipher = Aes256Gcm::new_from_slice(&recovery_key)
+    let cipher = Aes256Gcm::new_from_slice(recovery_key.as_ref())
         .map_err(|e| SecureCoreError::CryptoError(e.to_string()))?;
-
-    recovery_key.zeroize();
 
     // Reassemble ciphertext + tag for GCM
     let mut ct_with_tag = Vec::with_capacity(ciphertext.len() + tag.len());
@@ -198,13 +204,13 @@ pub fn unwrap_dek_with_passphrase(
     ct_with_tag.extend_from_slice(&tag);
 
     let gcm_nonce = Nonce::from_slice(&nonce);
-    let plaintext = cipher
-        .decrypt(gcm_nonce, ct_with_tag.as_ref())
-        .map_err(|_| {
+    let plaintext = Zeroizing::new(cipher.decrypt(gcm_nonce, ct_with_tag.as_ref()).map_err(
+        |_| {
             SecureCoreError::CryptoError(
                 "recovery unwrap failed: invalid passphrase or tampered data".into(),
             )
-        })?;
+        },
+    )?);
 
     if plaintext.len() != 32 {
         return Err(SecureCoreError::CryptoError(format!(
@@ -215,7 +221,7 @@ pub fn unwrap_dek_with_passphrase(
 
     let mut dek = [0u8; 32];
     dek.copy_from_slice(&plaintext);
-    Ok(dek)
+    Ok(Dek::take(&mut dek))
 }
 
 #[cfg(test)]

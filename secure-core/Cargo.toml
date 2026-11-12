@@ -9,7 +9,13 @@ license = "Apache-2.0"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-aes-gcm = "0.10"
+aes-gcm = { version = "0.10", features = ["zeroize"] }
+# Not used directly: listed only to enable their `zeroize` features, so the
+# AES-256 key schedule (which starts with the raw DEK) and the GHASH key held
+# inside every `Aes256Gcm` are wiped on drop. Versions match aes-gcm 0.10.
+aes = { version = "0.8", features = ["zeroize"] }
+ghash = { version = "0.5", features = ["zeroize"] }
+polyval = { version = "0.6", features = ["zeroize"] }
 argon2 = "0.5"
 base64 = "0.22"
 jni = { version = "0.21", optional = true }
