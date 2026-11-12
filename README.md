@@ -136,7 +136,7 @@ Measured on Apple Silicon, single-threaded (criterion 0.5).
 
 ## Security
 
-- AES-256-GCM with random 96-bit nonces (OS CSPRNG)
+- AES-256-GCM with random 96-bit nonces (`ThreadRng`: CSPRNG seeded from OS entropy)
 - Full 128-bit authentication tags
 - Header authenticated as AAD (in-memory); streaming truncation detected via a final-chunk marker, with legacy streams rejected by default
 - Per-chunk nonce derivation (XOR base nonce with chunk index)
