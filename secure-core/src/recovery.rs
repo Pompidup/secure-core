@@ -217,3 +217,23 @@ pub fn unwrap_dek_with_passphrase(
     dek.copy_from_slice(&plaintext);
     Ok(dek)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PASS: &str = "correct horse battery staple";
+
+    #[test]
+    fn test_unwrap_returns_a_dek_wiped_on_drop() {
+        let wrap = wrap_dek_with_passphrase(&[7u8; 32], PASS).unwrap();
+        let dek: crate::crypto::Dek = unwrap_dek_with_passphrase(&wrap, PASS).unwrap();
+        assert_eq!(dek.as_bytes(), &[7u8; 32]);
+    }
+
+    #[test]
+    fn test_derived_recovery_key_is_wiped_on_drop() {
+        let key: zeroize::Zeroizing<[u8; 32]> = derive_recovery_key(PASS, &[1u8; 16]).unwrap();
+        assert_ne!(*key, [0u8; 32]);
+    }
+}
