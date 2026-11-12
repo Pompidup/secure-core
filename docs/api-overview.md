@@ -216,6 +216,7 @@ All functions use `extern "C"` ABI. The caller **must** free results via `secure
 | 4 | `FFI_ERROR_IO` | I/O error |
 | 5 | `FFI_ERROR_INVALID_PARAM` | Invalid parameter |
 | 6 | `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | Recovery wrap `schema_version` not supported by this build |
+| 7 | `FFI_ERROR_INTERNAL` | Internal error: a panic was caught at the FFI/JNI boundary (secure-core bug); nothing was produced. Since 0.6.0 |
 
 > Clients SHALL classify failures by the numeric status **code**, never by
 > parsing `error_msg`. In particular, an incompatible recovery bundle returns

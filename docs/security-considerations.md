@@ -60,7 +60,9 @@ Use `Dek::new(key)` only when the source is not sensitive (test vectors, constan
 
 ### JNI bridge robustness
 
-`jni_bridge.rs` must not panic across the FFI boundary — doing so unwinds Rust into the JVM and aborts the Android process. Every fallible JNI call (`find_class`, `new_byte_array`, `new_string`, `new_object`, …) returns early with a null `JObject` (or equivalent) on failure. The pending JVM exception (`OutOfMemoryError`, `NoClassDefFoundError`, …) then surfaces to Kotlin on native-method return, giving the app a chance to degrade gracefully instead of dying.
+No panic may cross the FFI or JNI boundary: since Rust 1.81 a panic unwinding out of an `extern "C"` / `extern "system"` function aborts the process, which kills the Android or iOS app. Since 0.6.0 every entry point except the version getters runs inside `ffi_guard` / `jni_guard` (`catch_unwind`), which turns a panic into status `7` (`FFI_ERROR_INTERNAL`). `tests/ffi_boundary_guard.rs` fails if a new entry point is not guarded. This relies on the default `panic = "unwind"` profile.
+
+Independently, every fallible JNI call (`find_class`, `new_byte_array`, `new_string`, `new_object`, …) returns early with a null `JObject` (or equivalent) on failure, and `make_native_result` issues no JNI call while an exception is pending. The pending JVM exception (`OutOfMemoryError`, `NoClassDefFoundError`, …) then surfaces to Kotlin on native-method return, giving the app a chance to degrade gracefully instead of dying.
 
 ### Passphrase handling
 
