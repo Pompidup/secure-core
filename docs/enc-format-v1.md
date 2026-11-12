@@ -88,7 +88,7 @@ Les blobs produits avant V1.1 (`flags == 0`, secure-core < 0.3.0) restent lisibl
 
 ## Gestion des versions
 
-- Si `version > 1`, le lecteur **DOIT** rejeter le fichier avec l'erreur `UnsupportedVersion`.
+- Si `version ≠ 1` (y compris `0`, jamais produit), le lecteur **DOIT** rejeter le fichier avec l'erreur `UnsupportedVersion`. Un lecteur V2 acceptera explicitement `1` et `2`.
 - Si `magic ≠ "SENC"`, le lecteur **DOIT** rejeter le fichier avec l'erreur `InvalidFormat`.
 - Si `algorithm_id` est inconnu, le lecteur **DOIT** rejeter le fichier avec l'erreur `InvalidFormat`.
 
