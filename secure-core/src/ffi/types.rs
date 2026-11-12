@@ -18,6 +18,10 @@ pub const FFI_ERROR_INVALID_PARAM: i32 = 5;
 /// clients can classify "incompatible recovery bundle" without parsing the
 /// error message.
 pub const FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA: i32 = 6;
+/// Internal error: a panic was caught at the FFI/JNI boundary instead of
+/// aborting the host process. Additive code (0.6.0). Indicates a bug in
+/// secure-core; the operation did not complete and produced no output.
+pub const FFI_ERROR_INTERNAL: i32 = 7;
 
 // ── FFI types ───────────────────────────────────────────────────────────
 
@@ -121,6 +125,15 @@ impl FfiResult {
 
     pub fn invalid_param(msg: &str) -> Self {
         Self::from_error(SecureCoreError::InvalidParameter(msg.into()))
+    }
+
+    /// Result returned when a panic is caught at the boundary.
+    pub fn internal_error(msg: &str) -> Self {
+        Self {
+            status: FFI_ERROR_INTERNAL,
+            data: FfiBuffer::empty(),
+            error_msg: sanitize_to_cstring(msg.to_string()).into_raw(),
+        }
     }
 }
 

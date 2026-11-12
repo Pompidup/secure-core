@@ -1,10 +1,28 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use crate::crypto::{decrypt_bytes, encrypt_bytes, Dek};
 use crate::ffi::types::{FfiBuffer, FfiResult};
 use crate::recovery;
+
+/// Runs an entry-point body and turns a panic into `FFI_ERROR_INTERNAL`.
+///
+/// A panic unwinding out of an `extern "C"` function aborts the host process
+/// (Rust >= 1.81), which on mobile kills the app. Every exported function that
+/// returns an `FfiResult` runs its body through this guard. It relies on the
+/// default `panic = "unwind"`; a build with `panic = "abort"` would still abort.
+pub(crate) fn ffi_guard(body: impl FnOnce() -> FfiResult) -> FfiResult {
+    catch_unwind(AssertUnwindSafe(body)).unwrap_or_else(|_| {
+        FfiResult::internal_error("internal error: panic caught at the FFI boundary")
+    })
+}
+
+/// [`ffi_guard`] for the exported functions that return nothing (`free_*`).
+fn ffi_guard_unit(body: impl FnOnce()) {
+    let _ = catch_unwind(AssertUnwindSafe(body));
+}
 
 /// Returns the crate version as a null-terminated C string.
 ///
@@ -32,23 +50,27 @@ pub unsafe extern "C" fn secure_core_encrypt_bytes(
     dek_ptr: *const u8,
     dek_len: usize,
 ) -> FfiResult {
-    let Some(dek) = validate_dek(dek_ptr, dek_len) else {
-        return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
-    };
+    ffi_guard(|| {
+        let Some(dek) = validate_dek(dek_ptr, dek_len) else {
+            return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
+        };
 
-    // SAFETY: Caller guarantees plaintext_ptr is valid for plaintext_len bytes.
-    let plaintext = if plaintext_len == 0 {
-        &[]
-    } else if plaintext_ptr.is_null() {
-        return FfiResult::invalid_param("plaintext_ptr must not be null when plaintext_len > 0");
-    } else {
-        std::slice::from_raw_parts(plaintext_ptr, plaintext_len)
-    };
+        // SAFETY: Caller guarantees plaintext_ptr is valid for plaintext_len bytes.
+        let plaintext = if plaintext_len == 0 {
+            &[]
+        } else if plaintext_ptr.is_null() {
+            return FfiResult::invalid_param(
+                "plaintext_ptr must not be null when plaintext_len > 0",
+            );
+        } else {
+            std::slice::from_raw_parts(plaintext_ptr, plaintext_len)
+        };
 
-    match encrypt_bytes(plaintext, dek.as_bytes()) {
-        Ok(blob) => FfiResult::ok(blob),
-        Err(e) => FfiResult::from_error(e),
-    }
+        match encrypt_bytes(plaintext, dek.as_bytes()) {
+            Ok(blob) => FfiResult::ok(blob),
+            Err(e) => FfiResult::from_error(e),
+        }
+    })
 }
 
 /// Decrypts a `.enc` V1 blob and returns the plaintext.
@@ -66,21 +88,23 @@ pub unsafe extern "C" fn secure_core_decrypt_bytes(
     dek_ptr: *const u8,
     dek_len: usize,
 ) -> FfiResult {
-    let Some(dek) = validate_dek(dek_ptr, dek_len) else {
-        return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
-    };
+    ffi_guard(|| {
+        let Some(dek) = validate_dek(dek_ptr, dek_len) else {
+            return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
+        };
 
-    if blob_ptr.is_null() || blob_len == 0 {
-        return FfiResult::invalid_param("blob must be non-null and non-empty");
-    }
+        if blob_ptr.is_null() || blob_len == 0 {
+            return FfiResult::invalid_param("blob must be non-null and non-empty");
+        }
 
-    // SAFETY: Caller guarantees blob_ptr is valid for blob_len bytes.
-    let blob = std::slice::from_raw_parts(blob_ptr, blob_len);
+        // SAFETY: Caller guarantees blob_ptr is valid for blob_len bytes.
+        let blob = std::slice::from_raw_parts(blob_ptr, blob_len);
 
-    match decrypt_bytes(blob, dek.as_bytes()) {
-        Ok(plaintext) => FfiResult::ok(plaintext),
-        Err(e) => FfiResult::from_error(e),
-    }
+        match decrypt_bytes(blob, dek.as_bytes()) {
+            Ok(plaintext) => FfiResult::ok(plaintext),
+            Err(e) => FfiResult::from_error(e),
+        }
+    })
 }
 
 /// Encrypts a file using chunked streaming.
@@ -98,32 +122,34 @@ pub unsafe extern "C" fn secure_core_encrypt_file(
     dek_ptr: *const u8,
     dek_len: usize,
 ) -> FfiResult {
-    let Some(dek) = validate_dek(dek_ptr, dek_len) else {
-        return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
-    };
+    ffi_guard(|| {
+        let Some(dek) = validate_dek(dek_ptr, dek_len) else {
+            return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
+        };
 
-    let (Some(input_path), Some(output_path)) = (
-        path_from_c_str(input_path_ptr),
-        path_from_c_str(output_path_ptr),
-    ) else {
-        return FfiResult::invalid_param(
-            "input_path and output_path must be valid UTF-8 C strings",
-        );
-    };
-
-    match crate::api::encrypt_file(Path::new(input_path), Path::new(output_path), &dek) {
-        Ok(result) => {
-            // Return stream metadata as JSON
-            let json = format!(
-                "{{\"chunks\":{},\"total_plaintext_bytes\":{},\"total_ciphertext_bytes\":{}}}",
-                result.stream_metadata.chunks,
-                result.stream_metadata.total_plaintext_bytes,
-                result.stream_metadata.total_ciphertext_bytes
+        let (Some(input_path), Some(output_path)) = (
+            path_from_c_str(input_path_ptr),
+            path_from_c_str(output_path_ptr),
+        ) else {
+            return FfiResult::invalid_param(
+                "input_path and output_path must be valid UTF-8 C strings",
             );
-            FfiResult::ok(json.into_bytes())
+        };
+
+        match crate::api::encrypt_file(Path::new(input_path), Path::new(output_path), &dek) {
+            Ok(result) => {
+                // Return stream metadata as JSON
+                let json = format!(
+                    "{{\"chunks\":{},\"total_plaintext_bytes\":{},\"total_ciphertext_bytes\":{}}}",
+                    result.stream_metadata.chunks,
+                    result.stream_metadata.total_plaintext_bytes,
+                    result.stream_metadata.total_ciphertext_bytes
+                );
+                FfiResult::ok(json.into_bytes())
+            }
+            Err(e) => FfiResult::from_error(e),
         }
-        Err(e) => FfiResult::from_error(e),
-    }
+    })
 }
 
 /// Decrypts a V1.1 file using chunked streaming.
@@ -144,13 +170,15 @@ pub unsafe extern "C" fn secure_core_decrypt_file(
     dek_ptr: *const u8,
     dek_len: usize,
 ) -> FfiResult {
-    decrypt_file_with(
-        input_path_ptr,
-        output_path_ptr,
-        dek_ptr,
-        dek_len,
-        crate::api::decrypt_file,
-    )
+    ffi_guard(|| {
+        decrypt_file_with(
+            input_path_ptr,
+            output_path_ptr,
+            dek_ptr,
+            dek_len,
+            crate::api::decrypt_file,
+        )
+    })
 }
 
 /// Decrypts a V1.1 **or legacy V1.0** file. Migration only.
@@ -169,13 +197,15 @@ pub unsafe extern "C" fn secure_core_decrypt_file_allow_legacy(
     dek_ptr: *const u8,
     dek_len: usize,
 ) -> FfiResult {
-    decrypt_file_with(
-        input_path_ptr,
-        output_path_ptr,
-        dek_ptr,
-        dek_len,
-        crate::api::decrypt_file_allow_legacy,
-    )
+    ffi_guard(|| {
+        decrypt_file_with(
+            input_path_ptr,
+            output_path_ptr,
+            dek_ptr,
+            dek_len,
+            crate::api::decrypt_file_allow_legacy,
+        )
+    })
 }
 
 type DecryptFileFn = fn(
@@ -231,14 +261,16 @@ unsafe fn decrypt_file_with(
 /// - Must not be called twice on the same buffer.
 #[no_mangle]
 pub unsafe extern "C" fn secure_core_free_buffer(buf: FfiBuffer) {
-    if !buf.ptr.is_null() && buf.len > 0 {
-        // SAFETY: a non-empty buffer comes from FfiBuffer::from_vec, i.e. from
-        // Box::<[u8]>::into_raw of exactly `buf.len` bytes. Rebuilding that
-        // same boxed slice frees it with the layout it was allocated with.
-        let mut boxed = Box::from_raw(std::ptr::slice_from_raw_parts_mut(buf.ptr, buf.len));
-        zeroize::Zeroize::zeroize(&mut *boxed);
-        drop(boxed);
-    }
+    ffi_guard_unit(|| {
+        if !buf.ptr.is_null() && buf.len > 0 {
+            // SAFETY: a non-empty buffer comes from FfiBuffer::from_vec, i.e. from
+            // Box::<[u8]>::into_raw of exactly `buf.len` bytes. Rebuilding that
+            // same boxed slice frees it with the layout it was allocated with.
+            let mut boxed = Box::from_raw(std::ptr::slice_from_raw_parts_mut(buf.ptr, buf.len));
+            zeroize::Zeroize::zeroize(&mut *boxed);
+            drop(boxed);
+        }
+    });
 }
 
 /// Frees an `FfiResult` and all memory it owns (data buffer + error message).
@@ -249,13 +281,15 @@ pub unsafe extern "C" fn secure_core_free_buffer(buf: FfiBuffer) {
 /// - Must not be called twice on the same result.
 #[no_mangle]
 pub unsafe extern "C" fn secure_core_free_result(result: FfiResult) {
-    // SAFETY: FfiBuffer was allocated by FfiBuffer::from_vec.
-    secure_core_free_buffer(result.data);
+    ffi_guard_unit(|| {
+        // SAFETY: FfiBuffer was allocated by FfiBuffer::from_vec.
+        secure_core_free_buffer(result.data);
 
-    if !result.error_msg.is_null() {
-        // SAFETY: error_msg was allocated by CString::into_raw in FfiResult::from_error.
-        drop(CString::from_raw(result.error_msg));
-    }
+        if !result.error_msg.is_null() {
+            // SAFETY: error_msg was allocated by CString::into_raw in FfiResult::from_error.
+            drop(CString::from_raw(result.error_msg));
+        }
+    });
 }
 
 /// Wraps a DEK with a passphrase using Argon2id + AES-256-GCM.
@@ -274,23 +308,25 @@ pub unsafe extern "C" fn secure_core_wrap_dek_with_passphrase(
     dek_len: usize,
     passphrase_ptr: *const c_char,
 ) -> FfiResult {
-    let Some(dek) = validate_dek(dek_ptr, dek_len) else {
-        return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
-    };
+    ffi_guard(|| {
+        let Some(dek) = validate_dek(dek_ptr, dek_len) else {
+            return FfiResult::invalid_param("dek must be non-null and exactly 32 bytes");
+        };
 
-    let Some(passphrase) = path_from_c_str(passphrase_ptr) else {
-        return FfiResult::invalid_param("passphrase must be a valid UTF-8 C string");
-    };
+        let Some(passphrase) = path_from_c_str(passphrase_ptr) else {
+            return FfiResult::invalid_param("passphrase must be a valid UTF-8 C string");
+        };
 
-    match recovery::wrap_dek_with_passphrase(dek.as_bytes(), passphrase) {
-        Ok(wrap) => match serde_json::to_vec(&wrap) {
-            Ok(json) => FfiResult::ok(json),
-            Err(e) => FfiResult::from_error(crate::error::SecureCoreError::CryptoError(format!(
-                "failed to serialize RecoveryWrap: {e}"
-            ))),
-        },
-        Err(e) => FfiResult::from_error(e),
-    }
+        match recovery::wrap_dek_with_passphrase(dek.as_bytes(), passphrase) {
+            Ok(wrap) => match serde_json::to_vec(&wrap) {
+                Ok(json) => FfiResult::ok(json),
+                Err(e) => FfiResult::from_error(crate::error::SecureCoreError::CryptoError(
+                    format!("failed to serialize RecoveryWrap: {e}"),
+                )),
+            },
+            Err(e) => FfiResult::from_error(e),
+        }
+    })
 }
 
 /// Unwraps a DEK from a JSON-encoded RecoveryWrap using the passphrase.
@@ -308,33 +344,35 @@ pub unsafe extern "C" fn secure_core_unwrap_dek_with_passphrase(
     recovery_json_len: usize,
     passphrase_ptr: *const c_char,
 ) -> FfiResult {
-    if recovery_json_ptr.is_null() || recovery_json_len == 0 {
-        return FfiResult::invalid_param("recovery_json must be non-null and non-empty");
-    }
-
-    let Some(passphrase) = path_from_c_str(passphrase_ptr) else {
-        return FfiResult::invalid_param("passphrase must be a valid UTF-8 C string");
-    };
-
-    let json_bytes = std::slice::from_raw_parts(recovery_json_ptr, recovery_json_len);
-    let json_str = match std::str::from_utf8(json_bytes) {
-        Ok(s) => s,
-        Err(_) => return FfiResult::invalid_param("recovery_json must be valid UTF-8"),
-    };
-
-    let wrap: recovery::RecoveryWrap = match serde_json::from_str(json_str) {
-        Ok(w) => w,
-        Err(e) => {
-            return FfiResult::from_error(crate::error::SecureCoreError::InvalidFormat(format!(
-                "invalid RecoveryWrap JSON: {e}"
-            )))
+    ffi_guard(|| {
+        if recovery_json_ptr.is_null() || recovery_json_len == 0 {
+            return FfiResult::invalid_param("recovery_json must be non-null and non-empty");
         }
-    };
 
-    match recovery::unwrap_dek_with_passphrase(&wrap, passphrase) {
-        Ok(dek) => FfiResult::ok(dek.as_bytes().to_vec()),
-        Err(e) => FfiResult::from_error(e),
-    }
+        let Some(passphrase) = path_from_c_str(passphrase_ptr) else {
+            return FfiResult::invalid_param("passphrase must be a valid UTF-8 C string");
+        };
+
+        let json_bytes = std::slice::from_raw_parts(recovery_json_ptr, recovery_json_len);
+        let json_str = match std::str::from_utf8(json_bytes) {
+            Ok(s) => s,
+            Err(_) => return FfiResult::invalid_param("recovery_json must be valid UTF-8"),
+        };
+
+        let wrap: recovery::RecoveryWrap = match serde_json::from_str(json_str) {
+            Ok(w) => w,
+            Err(e) => {
+                return FfiResult::from_error(crate::error::SecureCoreError::InvalidFormat(
+                    format!("invalid RecoveryWrap JSON: {e}"),
+                ))
+            }
+        };
+
+        match recovery::unwrap_dek_with_passphrase(&wrap, passphrase) {
+            Ok(dek) => FfiResult::ok(dek.as_bytes().to_vec()),
+            Err(e) => FfiResult::from_error(e),
+        }
+    })
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────
