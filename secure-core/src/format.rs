@@ -75,7 +75,7 @@ impl EncHeader {
 
     /// Parses a header from a byte slice.
     ///
-    /// The slice must contain at least [`HEADER_SIZE_V1`] bytes.
+    /// The slice must contain at least 25 bytes (the V1 header size).
     pub fn from_bytes(data: &[u8]) -> Result<Self, SecureCoreError> {
         if data.len() < HEADER_SIZE_V1 as usize {
             return Err(SecureCoreError::InvalidFormat(format!(
