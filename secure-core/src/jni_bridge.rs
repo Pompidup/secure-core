@@ -3,6 +3,7 @@
 //! Maps Kotlin `SecureCoreLib` native methods to the Rust crypto API.
 //! Enabled via the `jni` feature flag.
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use jni::objects::{JByteArray, JClass, JObject, JString, JValue};
@@ -14,10 +15,30 @@ use crate::api;
 use crate::crypto::{decrypt_bytes, encrypt_bytes, Dek};
 use crate::error::SecureCoreError;
 use crate::ffi::types::{
-    FFI_ERROR_CRYPTO, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM, FFI_ERROR_IO,
-    FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA, FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK,
+    FFI_ERROR_CRYPTO, FFI_ERROR_INTERNAL, FFI_ERROR_INVALID_FORMAT, FFI_ERROR_INVALID_PARAM,
+    FFI_ERROR_IO, FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA, FFI_ERROR_UNSUPPORTED_VERSION, FFI_OK,
 };
 use crate::recovery;
+
+/// Runs a JNI entry-point body and turns a panic into a `NativeResult` with
+/// status `FFI_ERROR_INTERNAL`, instead of letting it unwind into the JVM
+/// (which aborts the Android process). Relies on `panic = "unwind"`.
+fn jni_guard<'a>(env: JNIEnv<'a>, body: impl FnOnce(JNIEnv<'a>) -> JObject<'a>) -> JObject<'a> {
+    // Both handles wrap the same per-thread JNIEnv pointer and are used on this
+    // thread only; `fallback` is touched only after `body` (which owns `env`)
+    // has returned or unwound, so they are never used concurrently.
+    // SAFETY: same thread, never used concurrently (see above).
+    let mut fallback = unsafe { env.unsafe_clone() };
+    match catch_unwind(AssertUnwindSafe(move || body(env))) {
+        Ok(result) => result,
+        Err(_) => make_native_result(
+            &mut fallback,
+            FFI_ERROR_INTERNAL,
+            None,
+            Some("internal error: panic caught at the JNI boundary"),
+        ),
+    }
+}
 
 fn error_to_status(err: &SecureCoreError) -> i32 {
     match err {
@@ -47,6 +68,11 @@ fn make_native_result<'a>(
     data: Option<&[u8]>,
     error_message: Option<&str>,
 ) -> JObject<'a> {
+    // JNI forbids most calls while an exception is pending (CheckJNI aborts):
+    // e.g. after a failed `convert_byte_array`. Let it surface to Kotlin.
+    if env.exception_check().unwrap_or(true) {
+        return JObject::null();
+    }
     let class = match env.find_class("com/securecore/SecureCoreLib$NativeResult") {
         Ok(c) => c,
         Err(_) => return JObject::null(),
@@ -109,318 +135,328 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_version<'a>(
 
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptBytes<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
     plaintext: JByteArray<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
-    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
-    let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => Zeroizing::new(b),
-        Err(_) => {
+    jni_guard(env, move |mut env| {
+        // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
+        let dek_bytes = match env.convert_byte_array(&dek) {
+            Ok(b) => Zeroizing::new(b),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read dek"),
+                )
+            }
+        };
+
+        if dek_bytes.len() != 32 {
             return make_native_result(
                 &mut env,
                 FFI_ERROR_INVALID_PARAM,
                 None,
-                Some("failed to read dek"),
-            )
+                Some(&format!(
+                    "dek must be exactly 32 bytes, got {}",
+                    dek_bytes.len()
+                )),
+            );
         }
-    };
 
-    if dek_bytes.len() != 32 {
-        return make_native_result(
-            &mut env,
-            FFI_ERROR_INVALID_PARAM,
-            None,
-            Some(&format!(
-                "dek must be exactly 32 bytes, got {}",
-                dek_bytes.len()
-            )),
-        );
-    }
+        let plaintext_bytes = match env.convert_byte_array(&plaintext) {
+            Ok(b) => Zeroizing::new(b),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read plaintext"),
+                )
+            }
+        };
 
-    let plaintext_bytes = match env.convert_byte_array(&plaintext) {
-        Ok(b) => Zeroizing::new(b),
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read plaintext"),
-            )
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&dek_bytes);
+        let dek = Dek::take(&mut key);
+
+        match encrypt_bytes(&plaintext_bytes, dek.as_bytes()) {
+            Ok(blob) => make_native_result(&mut env, FFI_OK, Some(&blob), None),
+            Err(e) => {
+                let status = error_to_status(&e);
+                make_native_result(&mut env, status, None, Some(&e.to_string()))
+            }
         }
-    };
-
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&dek_bytes);
-    let dek = Dek::take(&mut key);
-
-    match encrypt_bytes(&plaintext_bytes, dek.as_bytes()) {
-        Ok(blob) => make_native_result(&mut env, FFI_OK, Some(&blob), None),
-        Err(e) => {
-            let status = error_to_status(&e);
-            make_native_result(&mut env, status, None, Some(&e.to_string()))
-        }
-    }
+    })
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptBytes<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
     blob: JByteArray<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
-    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
-    let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => Zeroizing::new(b),
-        Err(_) => {
+    jni_guard(env, move |mut env| {
+        // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
+        let dek_bytes = match env.convert_byte_array(&dek) {
+            Ok(b) => Zeroizing::new(b),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read dek"),
+                )
+            }
+        };
+
+        if dek_bytes.len() != 32 {
             return make_native_result(
                 &mut env,
                 FFI_ERROR_INVALID_PARAM,
                 None,
-                Some("failed to read dek"),
-            )
+                Some(&format!(
+                    "dek must be exactly 32 bytes, got {}",
+                    dek_bytes.len()
+                )),
+            );
         }
-    };
 
-    if dek_bytes.len() != 32 {
-        return make_native_result(
-            &mut env,
-            FFI_ERROR_INVALID_PARAM,
-            None,
-            Some(&format!(
-                "dek must be exactly 32 bytes, got {}",
-                dek_bytes.len()
-            )),
-        );
-    }
+        let blob_bytes = match env.convert_byte_array(&blob) {
+            Ok(b) => b,
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read blob"),
+                )
+            }
+        };
 
-    let blob_bytes = match env.convert_byte_array(&blob) {
-        Ok(b) => b,
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read blob"),
-            )
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&dek_bytes);
+        let dek = Dek::take(&mut key);
+
+        match decrypt_bytes(&blob_bytes, dek.as_bytes()) {
+            Ok(plaintext) => {
+                let plaintext = Zeroizing::new(plaintext);
+                make_native_result(&mut env, FFI_OK, Some(&plaintext), None)
+            }
+            Err(e) => {
+                let status = error_to_status(&e);
+                make_native_result(&mut env, status, None, Some(&e.to_string()))
+            }
         }
-    };
-
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&dek_bytes);
-    let dek = Dek::take(&mut key);
-
-    match decrypt_bytes(&blob_bytes, dek.as_bytes()) {
-        Ok(plaintext) => {
-            let plaintext = Zeroizing::new(plaintext);
-            make_native_result(&mut env, FFI_OK, Some(&plaintext), None)
-        }
-        Err(e) => {
-            let status = error_to_status(&e);
-            make_native_result(&mut env, status, None, Some(&e.to_string()))
-        }
-    }
+    })
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeWrapDekWithPassphrase<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
     dek: JByteArray<'a>,
     passphrase: JString<'a>,
 ) -> JObject<'a> {
-    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
-    let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => Zeroizing::new(b),
-        Err(_) => {
+    jni_guard(env, move |mut env| {
+        // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
+        let dek_bytes = match env.convert_byte_array(&dek) {
+            Ok(b) => Zeroizing::new(b),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read dek"),
+                )
+            }
+        };
+
+        if dek_bytes.len() != 32 {
             return make_native_result(
                 &mut env,
                 FFI_ERROR_INVALID_PARAM,
                 None,
-                Some("failed to read dek"),
-            )
+                Some(&format!(
+                    "dek must be exactly 32 bytes, got {}",
+                    dek_bytes.len()
+                )),
+            );
         }
-    };
 
-    if dek_bytes.len() != 32 {
-        return make_native_result(
-            &mut env,
-            FFI_ERROR_INVALID_PARAM,
-            None,
-            Some(&format!(
-                "dek must be exactly 32 bytes, got {}",
-                dek_bytes.len()
-            )),
-        );
-    }
+        // Zeroizing wipes the heap buffer on drop so the passphrase does not
+        // linger in freed memory after this native call returns.
+        let passphrase_str: Zeroizing<String> = match env.get_string(&passphrase) {
+            Ok(s) => Zeroizing::new(s.into()),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read passphrase"),
+                )
+            }
+        };
 
-    // Zeroizing wipes the heap buffer on drop so the passphrase does not
-    // linger in freed memory after this native call returns.
-    let passphrase_str: Zeroizing<String> = match env.get_string(&passphrase) {
-        Ok(s) => Zeroizing::new(s.into()),
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read passphrase"),
-            )
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&dek_bytes);
+        let dek = Dek::take(&mut key);
+
+        match recovery::wrap_dek_with_passphrase(dek.as_bytes(), &passphrase_str) {
+            Ok(wrap) => match serde_json::to_vec(&wrap) {
+                Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
+                Err(e) => make_native_result(
+                    &mut env,
+                    FFI_ERROR_CRYPTO,
+                    None,
+                    Some(&format!("failed to serialize RecoveryWrap: {e}")),
+                ),
+            },
+            Err(e) => {
+                let status = error_to_status(&e);
+                make_native_result(&mut env, status, None, Some(&e.to_string()))
+            }
         }
-    };
-
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&dek_bytes);
-    let dek = Dek::take(&mut key);
-
-    match recovery::wrap_dek_with_passphrase(dek.as_bytes(), &passphrase_str) {
-        Ok(wrap) => match serde_json::to_vec(&wrap) {
-            Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
-            Err(e) => make_native_result(
-                &mut env,
-                FFI_ERROR_CRYPTO,
-                None,
-                Some(&format!("failed to serialize RecoveryWrap: {e}")),
-            ),
-        },
-        Err(e) => {
-            let status = error_to_status(&e);
-            make_native_result(&mut env, status, None, Some(&e.to_string()))
-        }
-    }
+    })
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeUnwrapDekWithPassphrase<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
     recovery_wrap_json: JString<'a>,
     passphrase: JString<'a>,
 ) -> JObject<'a> {
-    let json_str: String = match env.get_string(&recovery_wrap_json) {
-        Ok(s) => s.into(),
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read recoveryWrapJson"),
-            )
-        }
-    };
+    jni_guard(env, move |mut env| {
+        let json_str: String = match env.get_string(&recovery_wrap_json) {
+            Ok(s) => s.into(),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read recoveryWrapJson"),
+                )
+            }
+        };
 
-    // Zeroizing wipes the heap buffer on drop so the passphrase does not
-    // linger in freed memory after this native call returns.
-    let passphrase_str: Zeroizing<String> = match env.get_string(&passphrase) {
-        Ok(s) => Zeroizing::new(s.into()),
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read passphrase"),
-            )
-        }
-    };
+        // Zeroizing wipes the heap buffer on drop so the passphrase does not
+        // linger in freed memory after this native call returns.
+        let passphrase_str: Zeroizing<String> = match env.get_string(&passphrase) {
+            Ok(s) => Zeroizing::new(s.into()),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read passphrase"),
+                )
+            }
+        };
 
-    let wrap: recovery::RecoveryWrap = match serde_json::from_str(&json_str) {
-        Ok(w) => w,
-        Err(e) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some(&format!("invalid RecoveryWrap JSON: {e}")),
-            )
-        }
-    };
+        let wrap: recovery::RecoveryWrap = match serde_json::from_str(&json_str) {
+            Ok(w) => w,
+            Err(e) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some(&format!("invalid RecoveryWrap JSON: {e}")),
+                )
+            }
+        };
 
-    match recovery::unwrap_dek_with_passphrase(&wrap, &passphrase_str) {
-        Ok(dek) => make_native_result(&mut env, FFI_OK, Some(dek.as_bytes()), None),
-        Err(e) => {
-            let status = error_to_status(&e);
-            make_native_result(&mut env, status, None, Some(&e.to_string()))
+        match recovery::unwrap_dek_with_passphrase(&wrap, &passphrase_str) {
+            Ok(dek) => make_native_result(&mut env, FFI_OK, Some(dek.as_bytes()), None),
+            Err(e) => {
+                let status = error_to_status(&e);
+                make_native_result(&mut env, status, None, Some(&e.to_string()))
+            }
         }
-    }
+    })
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptFile<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
     input_path: JString<'a>,
     output_path: JString<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
-    // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
-    let dek_bytes = match env.convert_byte_array(&dek) {
-        Ok(b) => Zeroizing::new(b),
-        Err(_) => {
+    jni_guard(env, move |mut env| {
+        // Heap copy of the DEK: wiped on drop (Dek::take only wipes `key`).
+        let dek_bytes = match env.convert_byte_array(&dek) {
+            Ok(b) => Zeroizing::new(b),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read dek"),
+                )
+            }
+        };
+
+        if dek_bytes.len() != 32 {
             return make_native_result(
                 &mut env,
                 FFI_ERROR_INVALID_PARAM,
                 None,
-                Some("failed to read dek"),
-            )
+                Some(&format!(
+                    "dek must be exactly 32 bytes, got {}",
+                    dek_bytes.len()
+                )),
+            );
         }
-    };
 
-    if dek_bytes.len() != 32 {
-        return make_native_result(
-            &mut env,
-            FFI_ERROR_INVALID_PARAM,
-            None,
-            Some(&format!(
-                "dek must be exactly 32 bytes, got {}",
-                dek_bytes.len()
-            )),
-        );
-    }
+        let input_str: String = match env.get_string(&input_path) {
+            Ok(s) => s.into(),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read inputPath"),
+                )
+            }
+        };
 
-    let input_str: String = match env.get_string(&input_path) {
-        Ok(s) => s.into(),
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read inputPath"),
-            )
+        let output_str: String = match env.get_string(&output_path) {
+            Ok(s) => s.into(),
+            Err(_) => {
+                return make_native_result(
+                    &mut env,
+                    FFI_ERROR_INVALID_PARAM,
+                    None,
+                    Some("failed to read outputPath"),
+                )
+            }
+        };
+
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&dek_bytes);
+        let dek = Dek::take(&mut key);
+
+        match api::encrypt_file(Path::new(&input_str), Path::new(&output_str), &dek) {
+            Ok(result) => match serde_json::to_vec(&result.stream_metadata) {
+                Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
+                Err(e) => make_native_result(
+                    &mut env,
+                    FFI_ERROR_CRYPTO,
+                    None,
+                    Some(&format!("failed to serialize StreamMetadata: {e}")),
+                ),
+            },
+            Err(e) => {
+                let status = error_to_status(&e);
+                make_native_result(&mut env, status, None, Some(&e.to_string()))
+            }
         }
-    };
-
-    let output_str: String = match env.get_string(&output_path) {
-        Ok(s) => s.into(),
-        Err(_) => {
-            return make_native_result(
-                &mut env,
-                FFI_ERROR_INVALID_PARAM,
-                None,
-                Some("failed to read outputPath"),
-            )
-        }
-    };
-
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&dek_bytes);
-    let dek = Dek::take(&mut key);
-
-    match api::encrypt_file(Path::new(&input_str), Path::new(&output_str), &dek) {
-        Ok(result) => match serde_json::to_vec(&result.stream_metadata) {
-            Ok(json) => make_native_result(&mut env, FFI_OK, Some(&json), None),
-            Err(e) => make_native_result(
-                &mut env,
-                FFI_ERROR_CRYPTO,
-                None,
-                Some(&format!("failed to serialize StreamMetadata: {e}")),
-            ),
-        },
-        Err(e) => {
-            let status = error_to_status(&e);
-            make_native_result(&mut env, status, None, Some(&e.to_string()))
-        }
-    }
+    })
 }
 
 /// Decrypts a V1.1 file. Legacy V1.0 streams are rejected (`INVALID_FORMAT`).
@@ -432,7 +468,9 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
     output_path: JString<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
-    decrypt_file_jni(env, input_path, output_path, dek, api::decrypt_file)
+    jni_guard(env, move |env| {
+        decrypt_file_jni(env, input_path, output_path, dek, api::decrypt_file)
+    })
 }
 
 /// MIGRATION ONLY: decrypts a V1.1 or legacy V1.0 file. Truncation of legacy
@@ -445,13 +483,15 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFileAllowL
     output_path: JString<'a>,
     dek: JByteArray<'a>,
 ) -> JObject<'a> {
-    decrypt_file_jni(
-        env,
-        input_path,
-        output_path,
-        dek,
-        api::decrypt_file_allow_legacy,
-    )
+    jni_guard(env, move |env| {
+        decrypt_file_jni(
+            env,
+            input_path,
+            output_path,
+            dek,
+            api::decrypt_file_allow_legacy,
+        )
+    })
 }
 
 type DecryptFileFn =

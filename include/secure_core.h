@@ -31,6 +31,10 @@ extern "C" {
  * 0-5 unchanged); distinct from INVALID_PARAM so clients can detect an
  * incompatible recovery bundle without parsing error_msg. */
 #define SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA 6
+/* Internal error: a panic was caught at the FFI boundary instead of aborting
+ * the host process. Additive (0.6.0). Indicates a secure-core bug; the
+ * operation did not complete and produced no output. */
+#define SECURE_CORE_ERROR_INTERNAL          7
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 

@@ -54,6 +54,7 @@ check_status "FFI_ERROR_CRYPTO" "SECURE_CORE_ERROR_CRYPTO" "3"
 check_status "FFI_ERROR_IO" "SECURE_CORE_ERROR_IO" "4"
 check_status "FFI_ERROR_INVALID_PARAM" "SECURE_CORE_ERROR_INVALID_PARAM" "5"
 check_status "FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA" "SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA" "6"
+check_status "FFI_ERROR_INTERNAL" "SECURE_CORE_ERROR_INTERNAL" "7"
 
 # 4. Struct names must be present
 for struct_name in SecureCoreBuffer SecureCoreResult; do
