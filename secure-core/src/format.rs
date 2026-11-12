@@ -91,9 +91,10 @@ impl EncHeader {
             ));
         }
 
-        // Version
+        // Version: only versions this build knows are accepted. Version 0
+        // was never written and must not slip through as "older than 1".
         let version = u16::from_le_bytes([data[4], data[5]]);
-        if version > FORMAT_VERSION_V1 {
+        if version != FORMAT_VERSION_V1 {
             return Err(SecureCoreError::UnsupportedVersion {
                 found: version,
                 max_supported: FORMAT_VERSION_V1,
