@@ -2,15 +2,16 @@
 
 ## Scope
 
-This policy applies to the `secure-core` crate and the SecureCore Android application. It covers:
+This policy applies to the `secure-core` crate of this repository: the Rust library, its C FFI (`include/secure_core.h`) and its JNI bridge. It covers:
 
-- Cryptographic primitive implementations
-- Key management and derivation logic
-- Memory handling of sensitive data (zeroization, protection)
-- Document storage and backup policy
-- Authentication and session management
-- Preview lifecycle and temp file handling
-- Any dependency vulnerability that affects the security guarantees
+- Cryptographic primitive usage (AES-256-GCM, streaming construction, Argon2id recovery)
+- The `.enc` and recovery formats and their parsers
+- Key derivation (passphrase recovery) and key-material handling inside the core
+- Memory handling of sensitive data (zeroization)
+- The FFI/JNI boundary (memory safety, error reporting, panics)
+- Any dependency vulnerability that affects these guarantees
+
+The mobile application (document storage, backups, authentication, previews, temp files on the device) lives in a separate repository and is **not** covered here. Report app issues through the same private channels below, stating that they concern the app.
 
 Out of scope:
 
@@ -23,8 +24,10 @@ Out of scope:
 
 | Version | Supported |
 | ------- | --------- |
-| 1.0.x   | Yes       |
-| 0.1.x   | Yes       |
+| 0.5.x (latest) | Yes |
+| < 0.5   | No: 0.5.0 fixes [GHSA-43rf-fggr-vcgg](https://github.com/Pompidup/secure-core/security/advisories/GHSA-43rf-fggr-vcgg) and [GHSA-8xr7-q4j5-8p2v](https://github.com/Pompidup/secure-core/security/advisories/GHSA-8xr7-q4j5-8p2v); upgrade |
+
+Only the latest minor release receives security fixes. Releases and their binaries are listed on the [releases page](https://github.com/Pompidup/secure-core/releases).
 
 ## Reporting a Vulnerability
 
@@ -59,9 +62,13 @@ We are happy to credit reporters in release notes (with their permission). If yo
 
 ## Security Design Documentation
 
+- [Threat Model](docs/threat-model.md)
+- [Security Considerations](docs/security-considerations.md)
+- [Platform Contract](docs/platform-contract.md): what the core guarantees and what the app must do
+- [`.enc` V1 Format](docs/enc-format-v1.md) and [Recovery Format V1](docs/recovery-format-v1.md)
+- [FFI ABI V1](docs/ffi-abi-v1.md)
 - [Data Lifecycle](docs/data-lifecycle.md)
-- [Android Storage Policy](docs/android-storage-policy.md)
-- [Auth Policy](docs/auth-policy.md)
-- [Preview Security Policy](docs/preview-security-policy.md)
 - [Import Limits](docs/import-limits-v1.md)
-- [Hardening Results](docs/hardening-results-v1.md)
+- [Security Audit V1](docs/security-audit-v1.md) (historical, pre-0.1.0)
+
+App-side policies (Android/iOS storage, authentication, previews, hardening results) are maintained in the mobile application repository.
