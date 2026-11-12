@@ -177,9 +177,12 @@ pub unsafe extern "C" fn secure_core_decrypt_file(
 #[no_mangle]
 pub unsafe extern "C" fn secure_core_free_buffer(buf: FfiBuffer) {
     if !buf.ptr.is_null() && buf.len > 0 {
-        // SAFETY: buf.ptr was allocated by Vec::into_raw_parts via FfiBuffer::from_vec.
-        // We reconstruct the Vec and let it drop, which frees the memory.
-        drop(Vec::from_raw_parts(buf.ptr, buf.len, buf.len));
+        // SAFETY: a non-empty buffer comes from FfiBuffer::from_vec, i.e. from
+        // Box::<[u8]>::into_raw of exactly `buf.len` bytes. Rebuilding that
+        // same boxed slice frees it with the layout it was allocated with.
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            buf.ptr, buf.len,
+        )));
     }
 }
 

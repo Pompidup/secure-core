@@ -37,13 +37,23 @@ impl FfiBuffer {
         }
     }
 
-    pub fn from_vec(mut v: Vec<u8>) -> Self {
-        let buf = Self {
-            ptr: v.as_mut_ptr(),
-            len: v.len(),
-        };
-        std::mem::forget(v);
-        buf
+    /// Hands `v` over to the caller as a boxed slice of exactly `v.len()` bytes.
+    ///
+    /// The `Vec`'s spare capacity is dropped first (`into_boxed_slice`), so
+    /// `secure_core_free_buffer` can rebuild the allocation from `ptr` and
+    /// `len` alone with the exact layout it was allocated with. An empty
+    /// `Vec` is released here and returned as the null/0 empty buffer, so a
+    /// non-zero capacity can never leak.
+    pub fn from_vec(v: Vec<u8>) -> Self {
+        if v.is_empty() {
+            return Self::empty();
+        }
+        let boxed: Box<[u8]> = v.into_boxed_slice();
+        let len = boxed.len();
+        Self {
+            ptr: Box::into_raw(boxed) as *mut u8,
+            len,
+        }
     }
 }
 
