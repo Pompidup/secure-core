@@ -14,6 +14,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 
+## [0.6.0] - 2026-11-12
+
+### Added
+
+- FFI status code `7` `FFI_ERROR_INTERNAL` (C: `SECURE_CORE_ERROR_INTERNAL`): a panic was
+  caught at the FFI/JNI boundary instead of aborting the app. Additive. Treat it as a
+  generic internal error.
+- `RecoveryWrap::from_json`, the single recovery-JSON parser used by both boundaries
+  (`InvalidFormat` on malformed JSON).
+
+### Changed
+
+- **Breaking (Rust API only):** `recovery::unwrap_dek_with_passphrase` returns `Dek`
+  (was `[u8; 32]`) and `recovery::derive_recovery_key` returns `Zeroizing<[u8; 32]>`,
+  so key material is wiped on drop. The C and JNI ABI are unchanged.
+- `encrypt_file` / `decrypt_file` (and their C/JNI equivalents) write to a hidden
+  temporary file next to `output_path` (`0600` on unix) and rename it only on success.
+  On failure the temporary file is removed and an existing `output_path` is untouched.
+- `encrypt_file` / `decrypt_file` reject an `output_path` that is the input file
+  (same path, symlink, hard link) with `InvalidParameter` (status `5`).
+- Stream headers with unknown `flags` bits are rejected with `InvalidFormat` (status `1`);
+  in-memory blobs, whose header is authenticated, still ignore them. See
+  `docs/compat-promises.md`.
+- `.enc` headers with a version other than `1` (including `0`) are rejected with
+  `UnsupportedVersion`.
+- JNI: a malformed recovery JSON now returns `INVALID_FORMAT` (1), like the C FFI
+  (was `INVALID_PARAM` (5)).
+- JNI: when a JVM exception is already pending (for example a `null` array argument),
+  the native method returns `null` and lets the exception surface in Kotlin.
+- Toolchain pinned to Rust 1.99.1 for CI and release builds; the CI also builds the docs
+  with `-D warnings`.
+- Release: Android `.sha256` assets list the bare file name, so `sha256sum -c` works.
+
+### Security
+
+- **GHSA-jvhc-7j69-jqx4 (medium):** `decrypt_file` left partially decrypted plaintext on
+  disk when a later chunk failed to authenticate.
+- **GHSA-x2xg-5c59-h47m (medium):** `encrypt_file` / `decrypt_file` with the same input
+  and output destroyed the document while reporting success.
+- **GHSA-8424-45xh-252h (medium):** key material and plaintext copies were not wiped: the
+  AES key schedule and GHASH key (now through the `zeroize` features of `aes-gcm`, `aes`,
+  `ghash`, `polyval`), JNI heap copies, the recovery key and unwrapped DEK, FFI buffers
+  and streaming chunk buffers. Limitation: with polyval 0.6.2 the GHASH key is not wiped
+  on x86/x86_64 (Intel iOS simulator, desktop); shipped mobile binaries are covered.
+- **GHSA-8q2q-m3qr-452j (low):** no panic guard at the FFI/JNI boundary; a panic
+  aborted the host app. Every entry point now runs inside `catch_unwind` (status `7`).
+- **GHSA-x5cj-j476-6fv5 (low):** `DocumentMetadata` deserialization panicked on a
+  non-ASCII `content_hash`, and accepted signed hex pairs such as `+1`.
+- **GHSA-7m6x-cmv8-xwq4 (low):** the `.enc` header parser accepted version `0`.
+
 ## [0.5.0] - 2026-11-12
 
 ### Added

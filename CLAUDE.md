@@ -80,7 +80,7 @@ secure-core/src/
 
 ### Zones d'angle mort à surveiller
 
-- **`jni_bridge.rs`** (~560 L) exclu de la coverage : aucun harness Kotlin/Android aujourd'hui. Tout changement sur ce module doit être validé manuellement ou par un test d'intégration device-side.
+- **`jni_bridge.rs`** (~630 L) exclu de la coverage : aucun harness Kotlin/Android aujourd'hui. Tout changement sur ce module doit être validé manuellement ou par un test d'intégration device-side.
 - **`logging.rs`** exclu de la coverage : rester vigilant à ne rien logger de sensible.
 
 ---

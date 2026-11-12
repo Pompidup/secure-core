@@ -24,8 +24,8 @@ Out of scope:
 
 | Version | Supported |
 | ------- | --------- |
-| 0.5.x (latest) | Yes |
-| < 0.5   | No: 0.5.0 fixes [GHSA-43rf-fggr-vcgg](https://github.com/Pompidup/secure-core/security/advisories/GHSA-43rf-fggr-vcgg) and [GHSA-8xr7-q4j5-8p2v](https://github.com/Pompidup/secure-core/security/advisories/GHSA-8xr7-q4j5-8p2v); upgrade |
+| 0.6.x (latest) | Yes |
+| < 0.6   | No: 0.6.0 fixes six advisories and 0.5.0 two more (see the [advisories](https://github.com/Pompidup/secure-core/security/advisories) and `CHANGELOG.md`); upgrade |
 
 Only the latest minor release receives security fixes. Releases and their binaries are listed on the [releases page](https://github.com/Pompidup/secure-core/releases).
 
