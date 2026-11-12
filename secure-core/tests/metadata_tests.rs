@@ -292,3 +292,73 @@ fn test_metadata_tags_with_values_roundtrip() {
         Some(vec!["Finance".into(), "2026".into()])
     );
 }
+
+// ── content_hash parsing must reject, never panic ─────────────────────
+// `content_hash` comes from JSON the platform may have imported. A 64-byte
+// value made of multi-byte UTF-8 characters used to panic while slicing
+// ("byte index is not a char boundary") instead of returning an error.
+
+fn metadata_json_with_hash(hash: &str) -> String {
+    let mut value = serde_json::to_value(sample_metadata()).unwrap();
+    value["content_hash"] = serde_json::Value::String(hash.to_string());
+    value.to_string()
+}
+
+fn parse_hash(hash: &str) -> std::thread::Result<Result<DocumentMetadata, serde_json::Error>> {
+    let json = metadata_json_with_hash(hash);
+    std::panic::catch_unwind(|| serde_json::from_str::<DocumentMetadata>(&json))
+}
+
+#[test]
+fn test_content_hash_non_ascii_64_bytes_is_an_error_not_a_panic() {
+    let hostile = format!("a{}a", "é".repeat(31)); // 64 bytes, 33 chars
+    assert_eq!(hostile.len(), 64);
+    let parsed = parse_hash(&hostile).expect("deserializing content_hash must not panic");
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn test_content_hash_rejects_wrong_length_and_non_hex() {
+    for bad in [
+        "",
+        "ab",
+        &"a".repeat(63),
+        &"a".repeat(65),
+        &"g".repeat(64),
+        &"+1".repeat(32),
+    ] {
+        let parsed = parse_hash(bad).expect("must not panic");
+        assert!(parsed.is_err(), "{bad:?} must be rejected");
+    }
+}
+
+#[test]
+fn test_content_hash_accepts_lower_and_upper_case_hex() {
+    for (hex, expected) in [
+        ("ab".repeat(32), [0xAB; 32]),
+        ("AB".repeat(32), [0xAB; 32]),
+        ("0f".repeat(32), [0x0F; 32]),
+    ] {
+        let meta = parse_hash(&hex).expect("must not panic").unwrap();
+        assert_eq!(meta.content_hash, Some(expected), "{hex}");
+    }
+}
+
+#[test]
+fn test_content_hash_arbitrary_strings_never_panic() {
+    // Deterministic sweep of tricky 64-byte strings: multi-byte chars at
+    // every offset, plus combining marks and emoji.
+    let pieces = ["é", "€", "𝄞", "\u{301}", "😀", "ß"];
+    for piece in pieces {
+        for prefix in 0..4 {
+            let mut s = "0".repeat(prefix);
+            while s.len() + piece.len() <= 64 {
+                s.push_str(piece);
+            }
+            while s.len() < 64 {
+                s.push('0');
+            }
+            assert!(parse_hash(&s).is_ok(), "panicked on {s:?}");
+        }
+    }
+}
