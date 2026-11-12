@@ -101,7 +101,20 @@ FfiResult secure_core_decrypt_file(
 );
 ```
 
-Decrypts a file using chunked streaming. Returns stream metadata as JSON in `data`.
+Decrypts a V1.1 file using chunked streaming. Returns stream metadata as JSON in `data`. Since 0.5.0, streams without `FLAG_STREAM_FINAL_CHUNK` are rejected with `FFI_ERROR_INVALID_FORMAT` before any plaintext is written.
+
+### `secure_core_decrypt_file_allow_legacy` (0.5.0+, migration only)
+
+```c
+FfiResult secure_core_decrypt_file_allow_legacy(
+    const char    *input_path,
+    const char    *output_path,
+    const uint8_t *dek_ptr,
+    size_t         dek_len
+);
+```
+
+Same contract as `secure_core_decrypt_file`, but also accepts legacy V1.0 streams (pre-0.3.0, `flags == 0`). **Truncation of legacy input is not detected.** Call it once per legacy file, then re-encrypt with `secure_core_encrypt_file`; never use it for regular document opening.
 
 ### `secure_core_free_buffer`
 

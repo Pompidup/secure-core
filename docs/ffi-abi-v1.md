@@ -160,6 +160,22 @@ SecureCoreResult secure_core_decrypt_file(
 | Ownership retour | Caller owns — liberer via `secure_core_free_result()` |
 | Thread-safety | Safe (I/O peut bloquer) |
 | Codes possibles | `OK`, `INVALID_PARAM`, `IO`, `INVALID_FORMAT`, `UNSUPPORTED_VERSION`, `CRYPTO` |
+| Legacy (0.5.0+) | Un stream sans `FLAG_STREAM_FINAL_CHUNK` est rejeté (`INVALID_FORMAT`) avant toute écriture. Signature inchangée. |
+
+### secure_core_decrypt_file_allow_legacy
+
+Ajoutée en 0.5.0 (additive). **Migration uniquement.**
+
+```c
+SecureCoreResult secure_core_decrypt_file_allow_legacy(
+    const char    *input_path_ptr,
+    const char    *output_path_ptr,
+    const uint8_t *dek_ptr,
+    size_t         dek_len
+);
+```
+
+Mêmes paramètres, ownership, thread-safety et codes que `secure_core_decrypt_file`. Accepte en plus les streams legacy V1.0 (`flags == 0`), **sans détection de troncature**. À appeler une seule fois par fichier antérieur à 0.3.0, puis rechiffrer avec `secure_core_encrypt_file`. Équivalent JNI : `nativeDecryptFileAllowLegacy`.
 
 ### secure_core_free_buffer
 

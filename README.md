@@ -9,7 +9,7 @@ Pure Rust, bytes-in/bytes-out encryption core designed for mobile platforms (And
 - **AES-256-GCM** authenticated encryption (NIST approved, 128-bit auth tags)
 - **In-memory** encrypt/decrypt for small payloads
 - **Chunked streaming** for large files (64 KB chunks, constant memory usage)
-- **Custom `.enc` V1 format** with authenticated header (AAD)
+- **Custom `.enc` V1 format** (header authenticated as AAD in-memory; streams require the final-chunk flag)
 - **C-compatible FFI** for Kotlin/JNI and Swift integration
 - **Recovery** via passphrase-encrypted bundles (Argon2id)
 - **Zeroize on drop** for key material (`Dek` struct)
@@ -103,7 +103,7 @@ See [FFI API reference](docs/ffi-api.md) for full signatures and examples.
 [chunk_len 4B | chunk ciphertext + tag]*                            (streaming)
 ```
 
-The header is authenticated as AAD — any tampering is detected on decryption.
+In-memory blobs authenticate the header as AAD, so any tampering is detected on decryption. Streams authenticate each chunk index and the final chunk, but not the header. Readers therefore require `FLAG_STREAM_FINAL_CHUNK` and reject legacy streams, except through the migration-only `*_allow_legacy` API. See [`.enc` V1 format spec](docs/enc-format-v1.md).
 
 ## Performance
 
@@ -121,7 +121,7 @@ Measured on Apple Silicon, single-threaded (criterion 0.5).
 
 - AES-256-GCM with random 96-bit nonces (OS CSPRNG)
 - Full 128-bit authentication tags
-- Header authenticated as AAD
+- Header authenticated as AAD (in-memory); streaming truncation detected via a final-chunk marker, with legacy streams rejected by default
 - Per-chunk nonce derivation (XOR base nonce with chunk index)
 - `Dek` derives `ZeroizeOnDrop` with redacted `Debug`
 - No secrets in logs, no plaintext on disk

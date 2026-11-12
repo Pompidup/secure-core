@@ -87,8 +87,10 @@ The `Dek` type implements `Debug` as `Dek([REDACTED])`, preventing accidental ke
 ### Ciphertext
 
 - Ciphertext includes a 25-byte header, per-chunk length prefixes (streaming), and 16-byte GCM auth tags.
-- The header is authenticated as AAD — any modification is detected on decryption.
-- Chunk ordering is enforced via chunk-index AAD — reordering or truncation is detected.
+- In-memory: the header is authenticated as AAD, so any modification is detected on decryption.
+- Streaming: the header is **not** part of the chunk AAD. The nonce is protected indirectly (it derives every chunk nonce), but `version` and `flags` are not. Readers therefore require `FLAG_STREAM_FINAL_CHUNK` and reject streams without it (since 0.5.0).
+- Chunk ordering is enforced via the chunk index (nonce and AAD), so reordering is detected. Truncation is detected via the final-chunk marker, including when the flag has been cleared.
+- The migration-only `decrypt_stream_allow_legacy` / `*_allow_legacy` entry points do **not** detect truncation of legacy streams. Use them once to re-encrypt pre-0.3.0 files, never for regular reads.
 
 ### Metadata
 

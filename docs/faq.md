@@ -38,11 +38,11 @@ En pratique, pour des fichiers mobiles (photos, documents), ces limites sont lar
 
 ### Que se passe-t-il si le fichier est corrompu ?
 
-Le dechiffrement echoue avec une erreur `SecureCoreError::CryptoError`. AES-256-GCM est un schema AEAD : toute modification du ciphertext, du header ou du tag d'authentification est detectee.
+Le dechiffrement echoue avec une erreur `SecureCoreError::CryptoError` ou `InvalidFormat`. AES-256-GCM est un schema AEAD : toute modification du ciphertext ou du tag d'authentification est detectee. Le header est authentifie en mode in-memory ; en streaming, ses champs critiques sont proteges indirectement (le nonce derive les nonces des chunks) et un stream sans `FLAG_STREAM_FINAL_CHUNK` est rejete.
 
 Cas couverts :
-- **Bit flip** dans le ciphertext ou le header → erreur d'authentification GCM
-- **Troncature** du fichier → erreur de format ou chunk incomplet
+- **Bit flip** dans le ciphertext ou le header → erreur d'authentification GCM (in-memory), ou rejet du header (streaming)
+- **Troncature** du fichier → erreur de format ou chunk incomplet, y compris si le flag de fin de stream a ete efface
 - **Reordonnancement de chunks** (streaming) → erreur d'authentification (le chunk index fait partie de l'AAD)
 - **Mauvaise cle** → erreur d'authentification
 

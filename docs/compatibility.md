@@ -62,11 +62,11 @@ En V1, `content_hash` est optionnel et non calcule par le core. En V2, le core p
 
 ### flags
 
-Champ `u16` little-endian, authentifié comme AAD dans le header GCM.
+Champ `u16` little-endian. Authentifié (AAD) en mode in-memory uniquement ; en streaming, le header n'est pas dans l'AAD des chunks (voir `enc-format-v1.md`, section Auth tag). Un nouveau flag de streaming ne peut donc pas servir de garantie de sécurité tant que le header n'est pas authentifié (V2).
 
 | Bit | Nom / usage | Statut |
 |---|---|---|
-| 0 | `FLAG_STREAM_FINAL_CHUNK` — V1.1 streaming : AAD du dernier chunk marquée pour détection de troncature | **Actif** (depuis v0.2.0) |
+| 0 | `FLAG_STREAM_FINAL_CHUNK` — V1.1 streaming : AAD du dernier chunk marquée pour détection de troncature | **Actif** (depuis v0.3.0) ; **obligatoire** en lecture streaming depuis v0.5.0 |
 | 1 | Key rotation marker | Réservé |
 | 2 | Compression (zstd avant chiffrement) | Réservé |
 | 3-15 | Divers | Réservés, doivent être `0` |
