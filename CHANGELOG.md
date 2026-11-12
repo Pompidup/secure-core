@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Security
+
+
+## [0.5.0] - 2026-11-12
+
+### Added
+
 - Migration-only legacy stream decryption: `streaming::decrypt_stream_allow_legacy`,
   `api::decrypt_file_allow_legacy`, C `secure_core_decrypt_file_allow_legacy` and JNI
   `nativeDecryptFileAllowLegacy`. Additive ABI. They decrypt pre-0.3.0 streams
@@ -28,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Fix a streaming truncation-detection bypass. The stream header is not authenticated,
+- **GHSA-43rf-fggr-vcgg (high):** fix a streaming truncation-detection bypass. The stream header is not authenticated,
   so clearing `FLAG_STREAM_FINAL_CHUNK` made the reader fall back to the legacy path and
   accept a truncated (or emptied) V1.1 stream as valid. Legacy streams are now rejected
   by default (see Changed).
@@ -36,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anyhow` 1.0.102 → 1.0.104 (RUSTSEC-2026-0190). Both are dev/bench-only
   dependencies (via `criterion`); the shipped library is unaffected. Restores a
   clean `cargo audit`.
-- FFI: `secure_core_free_buffer` / `secure_core_free_result` released buffers with a
+- **GHSA-8xr7-q4j5-8p2v (high):** `secure_core_free_buffer` / `secure_core_free_result` released buffers with a
   wrong allocation size whenever the returned `Vec` had spare capacity (`decrypt_bytes`,
   file results, `wrap_dek_with_passphrase`). That is undefined behaviour, masked by
   `malloc`/`free` but heap corruption under a size-aware allocator. Buffers are now exact

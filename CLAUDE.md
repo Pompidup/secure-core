@@ -49,7 +49,7 @@ secure-core/src/
 ├── validation.rs    Validation longueur DEK/nonce
 ├── error.rs         SecureCoreError (6 variantes, codes FFI alignés)
 ├── logging.rs       Helpers log sans secrets (feature `log`)
-├── ffi/             Surface C ABI (types + 9 fonctions extern "C")
+├── ffi/             Surface C ABI (types + 10 fonctions extern "C")
 └── jni_bridge.rs    Pont JNI Android (feature `jni`)
 ```
 
@@ -80,7 +80,7 @@ secure-core/src/
 
 ### Zones d'angle mort à surveiller
 
-- **`jni_bridge.rs`** (~525 L) exclu de la coverage : aucun harness Kotlin/Android aujourd'hui. Tout changement sur ce module doit être validé manuellement ou par un test d'intégration device-side.
+- **`jni_bridge.rs`** (~560 L) exclu de la coverage : aucun harness Kotlin/Android aujourd'hui. Tout changement sur ce module doit être validé manuellement ou par un test d'intégration device-side.
 - **`logging.rs`** exclu de la coverage : rester vigilant à ne rien logger de sensible.
 
 ---
@@ -118,7 +118,7 @@ cargo bench
 ## Invariants non-négociables
 
 1. **Format `.enc` V1 figé** — le header (25 B, magic `SENC`) et les vectors golden sont un contrat public. Toute modification binaire exige : bump de version, documentation de migration, nouveaux vectors. Jamais de patch silencieux.
-2. **ABI FFI figée** — les 9 symboles `secure_core_*` et les 7 symboles JNI `Java_com_securecore_SecureCoreLib_*` sont consommés par les apps mobiles. Changer une signature = nouvelle version majeure.
+2. **ABI FFI figée** — les 10 symboles `secure_core_*` et les 8 symboles JNI `Java_com_securecore_SecureCoreLib_*` sont consommés par les apps mobiles. Changer une signature = nouvelle version majeure.
 3. **`include/secure_core.h`** DOIT rester synchronisé avec `ffi/functions.rs`. Le script `check-ffi-header.sh` le vérifie en CI.
 4. **`Dek`** ne doit jamais être `Clone`, jamais `Debug` non-redacté, jamais sérialisé.
 5. **Aucune dépendance réseau ni téléphone-maison** dans le cœur.
