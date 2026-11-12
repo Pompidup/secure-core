@@ -242,4 +242,24 @@ mod tests {
         let key: zeroize::Zeroizing<[u8; 32]> = derive_recovery_key(PASS, &[1u8; 16]).unwrap();
         assert_ne!(*key, [0u8; 32]);
     }
+
+    // ── JSON parsing shared by the C FFI and the JNI bridge ─────────────
+
+    #[test]
+    fn test_from_json_roundtrips_a_serialized_wrap() {
+        let wrap = wrap_dek_with_passphrase(&[9u8; 32], PASS).unwrap();
+        let json = serde_json::to_string(&wrap).unwrap();
+        assert_eq!(RecoveryWrap::from_json(&json).unwrap(), wrap);
+    }
+
+    #[test]
+    fn test_from_json_reports_malformed_json_as_invalid_format() {
+        for bad in ["", "{", "not json", "[]", r#"{"algo":"x"}"#] {
+            let err = RecoveryWrap::from_json(bad).unwrap_err();
+            assert!(
+                matches!(err, SecureCoreError::InvalidFormat(_)),
+                "{bad:?}: got {err:?}"
+            );
+        }
+    }
 }
