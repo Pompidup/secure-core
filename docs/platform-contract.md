@@ -44,6 +44,8 @@ Le core ne gère aucune métadonnée. Il produit des octets chiffrés, point.
 - Suppression sécurisée du fichier en clair après chiffrement (si applicable).
 - Gestion des chemins, permissions, et accès concurrent.
 
+`encrypt_file` / `decrypt_file` (et leurs équivalents FFI/JNI) écrivent d'abord dans un fichier temporaire caché `.<nom>.<aléa>.tmp`, créé dans le dossier de `output_path` (création exclusive, droits `0600`). Ce fichier n'est renommé sur `output_path` qu'après succès complet ; sur erreur, il est supprimé et un `output_path` existant reste intact. La plateforme doit donc pouvoir créer un fichier dans ce dossier. Si le processus est tué en cours d'opération, un temporaire peut subsister : la plateforme doit purger son dossier temporaire au démarrage (`SecureDelete`).
+
 ### 4. Cycle de vie de la passphrase (recovery)
 
 Quand la plateforme appelle `wrap_dek_with_passphrase` ou `unwrap_dek_with_passphrase` (export/import d'un bundle de recovery), elle est responsable du buffer qu'elle détient côté UI :
