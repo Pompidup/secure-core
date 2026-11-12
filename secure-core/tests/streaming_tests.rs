@@ -480,3 +480,46 @@ fn test_bytes_blob_with_header_version_0_is_rejected_as_unsupported() {
         "got: {err:?}"
     );
 }
+
+// ── Unknown header flags ─────────────────────────────────────────────
+// The stream header is not authenticated, so a flag bit this build does not
+// know can only come from corruption, tampering or a future writer whose
+// semantics we cannot honour. Streams with unknown bits are rejected.
+// In-memory blobs authenticate the header and keep ignoring unknown bits.
+
+#[test]
+fn test_stream_with_unknown_flag_bit_is_rejected() {
+    let dek = Dek::new(TEST_KEY);
+    let plaintext = random_bytes(CHUNK_SIZE + 11);
+    let blob = encrypt_to_vec(&plaintext, &dek);
+    for bit in [0x0002u16, 0x0100, 0x8000] {
+        let mut tampered = blob.clone();
+        let flags = u16::from_le_bytes([tampered[19], tampered[20]]) | bit;
+        tampered[19..21].copy_from_slice(&flags.to_le_bytes());
+        for allow_legacy in [false, true] {
+            let mut out = Vec::new();
+            let cursor = std::io::Cursor::new(&tampered);
+            let err = if allow_legacy {
+                secure_core::streaming::decrypt_stream_allow_legacy(cursor, &mut out, &dek)
+            } else {
+                secure_core::streaming::decrypt_stream(cursor, &mut out, &dek)
+            }
+            .unwrap_err();
+            assert!(
+                matches!(err, SecureCoreError::InvalidFormat(_)),
+                "bit {bit:#06x}, allow_legacy={allow_legacy}: got {err:?}"
+            );
+            assert!(out.is_empty(), "no plaintext before rejection");
+        }
+    }
+}
+
+#[test]
+fn test_stream_with_only_known_flags_still_decrypts() {
+    let dek = Dek::new(TEST_KEY);
+    let plaintext = random_bytes(CHUNK_SIZE * 2 + 3);
+    let blob = encrypt_to_vec(&plaintext, &dek);
+    let mut out = Vec::new();
+    secure_core::streaming::decrypt_stream(std::io::Cursor::new(&blob), &mut out, &dek).unwrap();
+    assert_eq!(out, plaintext);
+}

@@ -7,7 +7,7 @@
 Ce contrat est garanti par :
 
 1. Le champ `version` dans le header (octets 4-5) identifie la version majeure du format.
-2. Le champ `flags` (octets 19-20) signale les extensions mineures additives (ex. `FLAG_STREAM_FINAL_CHUNK` pour V1.1). Un lecteur ignore les bits qu'il ne connaît pas quand le comportement reste safe, ou accepte explicitement le bit quand son support est requis (cas de V1.1 streaming : un lecteur post-V1.1 bascule sur la détection de troncature).
+2. Le champ `flags` (octets 19-20) signale les extensions mineures additives (ex. `FLAG_STREAM_FINAL_CHUNK` pour V1.1). En in-memory (header authentifié), un lecteur ignore les bits qu'il ne connaît pas. En streaming (header non authentifié), il les rejette depuis 0.6.0 et exige `FLAG_STREAM_FINAL_CHUNK` depuis 0.5.0.
 3. Les futures versions du core devront toujours supporter le parsing et le déchiffrement des headers V1.x.
 4. Le blob de référence `testdata/v1_reference.enc` est vérifié dans les tests d'intégration pour détecter toute régression.
 5. Le pack compat V1.1 sous `testdata/compat/v1_1/stream/` fige le layout streaming (flag + AAD + chunk framing) via 5 tests de régression qui échouent au moindre diff binaire.
@@ -71,4 +71,4 @@ Champ `u16` little-endian. Authentifié (AAD) en mode in-memory uniquement ; en 
 | 2 | Compression (zstd avant chiffrement) | Réservé |
 | 3-15 | Divers | Réservés, doivent être `0` |
 
-Tout bit activé en V2 devra rester additif et n'invalide jamais les lecteurs V1.x (via `header_length` pour les extensions longues, ou via une sémantique "safe to ignore" pour les flags purement informatifs).
+En in-memory, tout nouveau bit restera additif et n'invalidera pas les lecteurs V1.x (via `header_length` pour les extensions longues, ou via une sémantique "safe to ignore" pour les flags purement informatifs). En streaming, les lecteurs V1.x existants refuseront tout bit inconnu : un nouveau flag de streaming passera plutôt par la V2, dont le header sera authentifié dans chaque chunk.

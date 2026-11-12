@@ -345,6 +345,28 @@ mod tests {
         assert_eq!(header.algorithm, crate::format::AlgorithmId::Aes256Gcm);
     }
 
+    /// In-memory blobs authenticate the whole header, so an unknown flag bit
+    /// set by a (future) writer is trustworthy and must keep being ignored
+    /// (compat promise). Streams, whose header is not authenticated, reject it.
+    #[test]
+    fn test_in_memory_blob_with_authenticated_unknown_flag_still_decrypts() {
+        let mut header = EncHeader::new_v1(TV_NONCE);
+        header.flags = 0x0002;
+        let header_bytes = header.to_bytes();
+        let cipher = Aes256Gcm::new_from_slice(&TV_KEY).unwrap();
+        let ct = cipher
+            .encrypt(
+                Nonce::from_slice(&TV_NONCE),
+                aes_gcm::aead::Payload {
+                    msg: b"future writer",
+                    aad: &header_bytes,
+                },
+            )
+            .unwrap();
+        let blob = [header_bytes, ct].concat();
+        assert_eq!(decrypt_bytes(&blob, &TV_KEY).unwrap(), b"future writer");
+    }
+
     // ── Cipher state zeroization ────────────────────────────────────
     // The expanded AES-256 key schedule starts with the raw DEK, and the
     // GHASH key is derived from it. Both live inside every `Aes256Gcm` and

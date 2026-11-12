@@ -13,7 +13,7 @@ Offset  Taille   Champ            Description
 0x04    2        version          Version du format, u16 little-endian (0x0001 pour V1)
 0x06    1        algorithm_id     Identifiant algorithme : 0x01 = AES-256-GCM
 0x07    12       nonce            Nonce/IV (96 bits, unique par chiffrement)
-0x13    2        flags            Flags réservés, u16 little-endian (0x0000 en V1)
+0x13    2        flags            Flags, u16 little-endian (0x0000 en in-memory, 0x0001 en stream V1.1)
 0x15    4        header_length    Longueur totale du header en bytes, u32 little-endian
 0x19    N        payload          Ciphertext (N bytes)
 0x19+N  16       auth_tag         Tag d'authentification GCM (128 bits)
@@ -60,12 +60,15 @@ Les deux chemins d'API ont des bornes différentes — by design, pas un oubli :
 
 ### Flags
 
-Champ `u16` little-endian. Un lecteur V1 **DOIT** ignorer les bits qu'il ne connaît pas (forward compatibility).
+Champ `u16` little-endian. Le traitement d'un bit inconnu dépend du mode, car seul l'in-memory authentifie le header :
+
+- **In-memory** : le header est l'AAD GCM, un bit inconnu vient donc forcément d'un écrivain légitime. Le lecteur **DOIT** l'ignorer (forward compatibility).
+- **Streaming** : le header n'est pas authentifié, un bit inconnu peut venir d'une corruption ou d'une falsification. Depuis 0.6.0, le lecteur **DOIT** rejeter le stream (`InvalidFormat`) avant d'écrire du clair, y compris via l'API de migration `*_allow_legacy`. Tout nouveau flag de streaming exige donc une nouvelle version du lecteur.
 
 | Bit    | Nom                         | Sémantique                                                                 |
 | ------ | --------------------------- | -------------------------------------------------------------------------- |
 | `0x0001` | `FLAG_STREAM_FINAL_CHUNK` | V1.1 streaming : le dernier chunk est authentifié avec un marqueur (voir ci-dessous). Absent = layout V1.0 legacy, sans détection de troncature. |
-| `0x0002` — `0x8000` | réservés                  | Doivent être `0`. Tout bit additionnel introduit dans une future version mineure sera additif et rétro-compatible pour le chemin in-memory. |
+| `0x0002` — `0x8000` | réservés                  | Doivent être `0`. Un futur bit sera ignoré par les lecteurs in-memory existants et rejeté par les lecteurs streaming existants (voir ci-dessus). |
 
 #### Streaming V1.1 — détection de troncature
 

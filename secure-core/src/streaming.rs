@@ -22,6 +22,11 @@ const TAG_SIZE: usize = 16;
 /// allocation via the 4-byte length prefix.
 const MAX_CHUNK_ENCODED_LEN: usize = CHUNK_SIZE + TAG_SIZE;
 
+/// Header flag bits a stream reader of this build understands. Any other
+/// bit makes `decrypt_stream` reject the stream (the header is not
+/// authenticated in streaming mode).
+const KNOWN_STREAM_FLAGS: u16 = FLAG_STREAM_FINAL_CHUNK;
+
 /// High bit of the 4-byte AAD that marks the final chunk in a V1.1 stream.
 /// The bit is reserved; valid chunk indices are in `0..LAST_CHUNK_AAD_MARKER`.
 const LAST_CHUNK_AAD_MARKER: u32 = 0x8000_0000;
@@ -281,6 +286,15 @@ fn decrypt_stream_impl<R: Read, W: Write>(
 
     let header = EncHeader::from_bytes(&header_buf)?;
     let base_nonce = header.nonce;
+    // The stream header is not authenticated: a flag bit this build does not
+    // know can only come from corruption, tampering or a future writer whose
+    // semantics we cannot honour. Refuse rather than guess.
+    let unknown_flags = header.flags & !KNOWN_STREAM_FLAGS;
+    if unknown_flags != 0 {
+        return Err(SecureCoreError::InvalidFormat(format!(
+            "stream header has unknown flag bits {unknown_flags:#06x}"
+        )));
+    }
     let expects_final_marker = header.flags & FLAG_STREAM_FINAL_CHUNK != 0;
     if !expects_final_marker && !allow_legacy {
         return Err(SecureCoreError::InvalidFormat(
