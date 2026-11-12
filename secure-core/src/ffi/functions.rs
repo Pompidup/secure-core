@@ -362,3 +362,28 @@ unsafe fn path_from_c_str<'a>(ptr: *const c_char) -> Option<&'a str> {
     // SAFETY: Caller guarantees ptr is a valid null-terminated C string.
     CStr::from_ptr(ptr).to_str().ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffi::types::{FFI_ERROR_INTERNAL, FFI_OK};
+
+    #[test]
+    fn test_ffi_guard_turns_a_panic_into_an_internal_error() {
+        let result = ffi_guard(|| panic!("simulated bug"));
+        assert_eq!(result.status, FFI_ERROR_INTERNAL);
+        assert!(!result.error_msg.is_null());
+        assert!(result.data.ptr.is_null() && result.data.len == 0);
+        // SAFETY: result was built by ffi_guard and is freed exactly once.
+        unsafe { secure_core_free_result(result) };
+    }
+
+    #[test]
+    fn test_ffi_guard_passes_results_through() {
+        let result = ffi_guard(|| FfiResult::ok(vec![1, 2, 3]));
+        assert_eq!(result.status, FFI_OK);
+        assert_eq!(result.data.len, 3);
+        // SAFETY: result was built by ffi_guard and is freed exactly once.
+        unsafe { secure_core_free_result(result) };
+    }
+}
