@@ -23,9 +23,10 @@ jobs:
             abi: armeabi-v7a
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal  # version from rust-toolchain.toml
+          rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
       - name: Set up Android SDK
@@ -69,9 +70,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal  # version from rust-toolchain.toml
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
       - uses: Swatinem/rust-cache@v2
 
       - name: Build xcframework

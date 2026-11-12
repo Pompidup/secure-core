@@ -18,7 +18,7 @@ Le stockage (SQLite, metadata JSON, keystore OS) est **hors périmètre** : c'es
 
 ## Stack
 
-- **Rust** stable (pinned via `rust-toolchain.toml`), edition 2021
+- **Rust** 1.99.1, épinglée dans `rust-toolchain.toml` (CI et binaires de release incluses), edition 2021. Toute montée de version se fait dans un commit `chore(toolchain):` dédié.
 - **Workspace Cargo** : `secure-core` (lib `cdylib`/`staticlib`/`rlib`) + `ffi-harness` (bin de test FFI)
 - **Crypto** : `aes-gcm 0.10`, `argon2 0.5`, `rand 0.9`, `zeroize 1`
 - **FFI** : `libc 0.2`, `jni 0.21` (feature `jni`)

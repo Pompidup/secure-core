@@ -4,9 +4,12 @@
 
 | Component | Version | Notes |
 | --------- | ------- | ----- |
-| Rust stable | 1.75+ | Managed by `rust-toolchain.toml` |
-| rustfmt | stable | Required for CI |
-| clippy | stable | Required for CI |
+| Rust | **1.99.1** (pinned) | Exact version in `rust-toolchain.toml`; rustup installs it automatically in this directory. CI and release builds use it too (`rustup toolchain install`) |
+| rustfmt | from the pinned toolchain | Required for CI |
+| clippy | from the pinned toolchain | Required for CI |
+| llvm-tools-preview | from the pinned toolchain | Coverage only (`rustup component add llvm-tools-preview`) |
+
+The toolchain is pinned so that CI results and the released mobile binaries are reproducible: a new Rust release can no longer change them without a commit. To upgrade, change `channel` in `rust-toolchain.toml` (and this table) in a dedicated `chore(toolchain):` commit, and let the full CI run. Mobile targets are added per job (`rustup target add ...`), or locally by `scripts/build-android.sh` / `scripts/build-ios.sh`.
 
 ## Android Cross-Compilation
 
