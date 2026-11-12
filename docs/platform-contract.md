@@ -87,17 +87,21 @@ Le core impose **un seul** invariant : la passphrase ne doit pas être vide (`In
 
 ### 5. Gestion des erreurs de version recovery
 
-Depuis v0.2.0, le format `RecoveryWrap` porte un champ `schema_version`. Un core qui ne reconnaît pas la version déclarée **rejette explicitement** le bundle :
+Depuis v0.2.0, le format `RecoveryWrap` porte un champ `schema_version`. Un core qui ne reconnaît pas la version déclarée **rejette explicitement** le bundle, avant toute opération crypto. Depuis v0.4.0, ce rejet a son propre type et son propre code :
 
 ```
-SecureCoreError::InvalidParameter(
-  "unsupported recovery schema_version: \"2.0\" (this build only accepts \"1.0\")"
-)
+SecureCoreError::UnsupportedRecoverySchema { found: "2.0" }
+// message : unsupported recovery schema_version: "2.0" (this build accepts "1.0")
 ```
 
-Ce code d'erreur remonte comme `FFI_ERROR_INVALID_PARAM` côté FFI C et dans le status du `NativeResult` JNI. La plateforme **DOIT** :
+| Surface | Valeur |
+| --- | --- |
+| C FFI | `status == 6` (`SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` / `FFI_ERROR_UNSUPPORTED_RECOVERY_SCHEMA`) |
+| JNI | `NativeResult.status == 6` |
 
-- **Détecter** le texte `"unsupported recovery schema_version"` dans le message, OU comparer `schema_version` localement avant de passer au core.
+La plateforme **DOIT** :
+
+- **Détecter** le cas par le **status `6`**, jamais en cherchant du texte dans `error_msg` : le message est diagnostique et peut changer. (Avant 0.4.0, le core renvoyait `INVALID_PARAM` (5) et il fallait parser le message ; ce n'est plus nécessaire.)
 - **Surfacer** à l'utilisateur un message actionnable — exemple :
   > « Ce bundle de recovery a été créé par une version plus récente de l'app. Mettez à jour l'app et réessayez. »
 - **Ne pas** tenter de "réparer" le bundle en modifiant son `schema_version` dans le JSON. Même si le JSON n'est pas signé directement, toute modification entraîne un rejet crypto côté GCM (les paramètres KDF/cipher déclarés par la version ne correspondraient plus à ceux utilisés à l'encryption), et masquer ça à l'utilisateur créerait une confusion (« mauvaise passphrase ? ») là où la vraie cause est « app obsolète ».
@@ -108,7 +112,7 @@ Les autres versions connues (rétro-compat deserialization) :
 | --- | --- |
 | `schema_version` absent (bundle antérieur au versioning) | Traité comme `"1.0"` via `#[serde(default)]` → unwrap normal |
 | `schema_version == "1.0"` | Accepté, comportement historique |
-| `schema_version` inconnu (`"1.1"`, `"2.0"`, …) | `InvalidParameter` explicite |
+| `schema_version` inconnu (`"1.1"`, `"2.0"`, …) | `UnsupportedRecoverySchema` → status `6` |
 
 Voir `docs/recovery-format-v1.md#recoverywrap-schema` pour la politique d'évolution.
 
