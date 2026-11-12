@@ -79,21 +79,38 @@ cargo bench
 
 ## FFI usage
 
-The library exposes 7 `extern "C"` functions:
+The library exposes 10 `extern "C"` functions, declared in [`include/secure_core.h`](include/secure_core.h):
 
 | Function | Description |
 |---|---|
 | `secure_core_encrypt_bytes` | In-memory encrypt |
 | `secure_core_decrypt_bytes` | In-memory decrypt |
 | `secure_core_encrypt_file` | Streaming file encrypt |
-| `secure_core_decrypt_file` | Streaming file decrypt |
-| `secure_core_version` | Returns crate version string |
+| `secure_core_decrypt_file` | Streaming file decrypt (V1.1 streams) |
+| `secure_core_decrypt_file_allow_legacy` | Migration only: also decrypts pre-0.3.0 streams, without truncation detection |
+| `secure_core_wrap_dek_with_passphrase` | Wrap a DEK into a passphrase recovery bundle (Argon2id + AES-256-GCM, JSON) |
+| `secure_core_unwrap_dek_with_passphrase` | Recover the DEK from a recovery bundle |
+| `secure_core_version` | Returns crate version string (static, never freed) |
 | `secure_core_free_buffer` | Free a Rust-allocated buffer |
-| `secure_core_free_result` | Free an FfiResult |
+| `secure_core_free_result` | Free an `FfiResult` |
 
-All functions return an `FfiResult` with status code, data buffer, and error message. The caller **must** free results via `secure_core_free_result`.
+Every function except `secure_core_version` and the `free_*` functions returns an `FfiResult` with a status code, a data buffer and an error message. The caller **must** free results via `secure_core_free_result`.
 
-See [FFI API reference](docs/ffi-api.md) for full signatures and examples.
+**Status codes:**
+
+| Code | C constant | Meaning |
+|---|---|---|
+| 0 | `SECURE_CORE_OK` | Success |
+| 1 | `SECURE_CORE_ERROR_INVALID_FORMAT` | Malformed or unsupported `.enc` layout |
+| 2 | `SECURE_CORE_ERROR_UNSUPPORTED_VERSION` | `.enc` version not supported by this build |
+| 3 | `SECURE_CORE_ERROR_CRYPTO` | Wrong key or tampered data |
+| 4 | `SECURE_CORE_ERROR_IO` | File I/O error |
+| 5 | `SECURE_CORE_ERROR_INVALID_PARAM` | Invalid argument |
+| 6 | `SECURE_CORE_ERROR_UNSUPPORTED_RECOVERY_SCHEMA` | Recovery bundle `schema_version` not supported by this build |
+
+Branch on the status code; `error_msg` is diagnostic only. The Android JNI bridge (`com.securecore.SecureCoreLib`) exposes the same operations and codes.
+
+See [FFI API reference](docs/ffi-api.md) for full signatures and examples, and [FFI ABI V1](docs/ffi-abi-v1.md) for the stability promises.
 
 ## `.enc` V1 format
 
@@ -147,6 +164,10 @@ See [Security considerations](docs/security-considerations.md) and [Threat model
 | [Compat promises](docs/compat-promises.md) | ABI/format stability guarantees |
 | [Build Android](docs/build-android.md) | Cross-compilation setup for Android |
 | [Build iOS](docs/build-ios.md) | Cross-compilation setup for iOS |
+| [Data lifecycle](docs/data-lifecycle.md) | End-to-end document lifecycle (import, open, delete) |
+| [Import limits V1](docs/import-limits-v1.md) | Supported MIME types and import size limits |
+| [Recovery UX guide](docs/recovery-ux-guide.md) | Recommended UX for recovery bundle export/import |
+| [Wraps error codes](docs/wraps-error-codes.md) | DEK wrap/unwrap error codes and their platform mapping |
 | [ADR-001: Algorithm choice](docs/decisions/ADR-001-algo-choice.md) | Why AES-256-GCM |
 | [ADR-002: Streaming strategy](docs/decisions/ADR-002-streaming-strategy.md) | Why 64 KB chunks |
 | [FAQ](docs/faq.md) | Common questions |
