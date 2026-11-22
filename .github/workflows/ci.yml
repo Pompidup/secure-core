@@ -94,7 +94,7 @@ jobs:
         run: chmod +x scripts/check-ffi-header.sh && ./scripts/check-ffi-header.sh
 
   compat-tests:
-    name: Compat Tests (V1 + V1.1 Golden Files)
+    name: Compat Tests (V1, V1.1 and V2 Golden Files)
     runs-on: ubuntu-latest
     needs: check
     steps:
