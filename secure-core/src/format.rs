@@ -172,7 +172,7 @@ mod tests {
             err,
             SecureCoreError::UnsupportedVersion {
                 found: 99,
-                max_supported: 1
+                max_supported: 2
             }
         ));
     }

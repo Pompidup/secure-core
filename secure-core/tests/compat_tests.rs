@@ -270,10 +270,10 @@ fn test_compat_error_future_version() {
             err,
             SecureCoreError::UnsupportedVersion {
                 found: 99,
-                max_supported: 1
+                max_supported: 2
             }
         ),
-        "expected UnsupportedVersion(99, 1) for future version, got: {err:?}"
+        "expected UnsupportedVersion(99, 2) for future version, got: {err:?}"
     );
 }
 
