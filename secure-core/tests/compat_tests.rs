@@ -510,3 +510,146 @@ fn test_compat_v1_1_stream_deterministic_regeneration() {
         );
     }
 }
+
+// ── V2 streaming compat pack ───────────────────────────────────────────
+//
+// The V2 format (docs/enc-format-v2.md: header in every chunk's AAD) is
+// frozen by golden files under testdata/compat/v2/stream/. Each vector must
+// decrypt, carry a V2 header, reject truncation and a downgrade to V1.1,
+// and regenerate byte-for-byte.
+
+#[derive(serde::Deserialize)]
+struct V2StreamPack {
+    version: String,
+    vectors: Vec<StreamVectorEntry>,
+}
+
+fn compat_v2_stream_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/compat/v2/stream")
+}
+
+fn load_v2_pack() -> V2StreamPack {
+    let path = compat_v2_stream_dir().join("vectors.json");
+    let data = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    serde_json::from_str(&data).unwrap()
+}
+
+fn v2_dek(vector: &StreamVectorEntry) -> Dek {
+    let path = compat_v2_stream_dir().join("test_deks.json");
+    let raw: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let hex = raw[&vector.dek_ref]
+        .as_str()
+        .unwrap_or_else(|| panic!("DEK {} not found in V2 test_deks.json", vector.dek_ref));
+    Dek::new(hex_to_bytes(hex).try_into().unwrap())
+}
+
+fn v2_file(vector: &StreamVectorEntry, name: &str) -> Vec<u8> {
+    let path = compat_v2_stream_dir().join(&vector.id).join(name);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+}
+
+#[test]
+fn test_compat_v2_pack_contains_the_expected_vectors() {
+    let pack = load_v2_pack();
+    assert_eq!(pack.version, "2.0");
+    let mut ids: Vec<&str> = pack.vectors.iter().map(|v| v.id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        ["stream_empty", "stream_multi_chunk", "stream_single_chunk"]
+    );
+}
+
+#[test]
+fn test_compat_v2_stream_vectors_decrypt_and_carry_a_v2_header() {
+    for vector in &load_v2_pack().vectors {
+        let enc = v2_file(vector, "encrypted.enc");
+        assert_eq!(
+            sha256_hex(&enc),
+            vector.cipher_sha256,
+            "cipher_sha256 mismatch for V2 vector {} — golden file drift",
+            vector.id
+        );
+        let header = EncHeader::from_bytes(&enc).unwrap();
+        assert_eq!(header.version, 2, "{}", vector.id);
+        assert_eq!(header.flags, FLAG_STREAM_FINAL_CHUNK, "{}", vector.id);
+
+        let mut plaintext = Vec::new();
+        let meta = decrypt_stream(Cursor::new(&enc), &mut plaintext, &v2_dek(vector))
+            .unwrap_or_else(|e| panic!("decrypt_stream failed on V2 {}: {e}", vector.id));
+        assert_eq!(meta.chunks, vector.chunks, "{}", vector.id);
+        assert_eq!(
+            sha256_hex(&plaintext),
+            vector.plain_sha256,
+            "FORMAT REGRESSION: V2 {} plaintext SHA mismatch",
+            vector.id
+        );
+        assert_eq!(plaintext, v2_file(vector, "plain.bin"), "{}", vector.id);
+    }
+}
+
+#[test]
+fn test_compat_v2_stream_multi_chunk_truncation_is_detected() {
+    let pack = load_v2_pack();
+    let vector = pack
+        .vectors
+        .iter()
+        .find(|v| v.id == "stream_multi_chunk")
+        .unwrap();
+    assert_eq!(vector.chunks, 3);
+    let enc = v2_file(vector, "encrypted.enc");
+    let first_len = u32::from_le_bytes(enc[25..29].try_into().unwrap()) as usize;
+    let second_start = 25 + 4 + first_len;
+    let second_len =
+        u32::from_le_bytes(enc[second_start..second_start + 4].try_into().unwrap()) as usize;
+    let truncated = &enc[..second_start + 4 + second_len];
+
+    let mut sink = Vec::new();
+    let err = decrypt_stream(Cursor::new(truncated), &mut sink, &v2_dek(vector)).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            SecureCoreError::InvalidFormat(_) | SecureCoreError::CryptoError(_)
+        ),
+        "truncated V2 stream must be rejected, got: {err:?}"
+    );
+}
+
+#[test]
+fn test_compat_v2_stream_downgrade_to_v1_1_is_rejected() {
+    for vector in &load_v2_pack().vectors {
+        let mut enc = v2_file(vector, "encrypted.enc");
+        enc[4] = 1;
+        let mut sink = Vec::new();
+        let err = decrypt_stream(Cursor::new(&enc), &mut sink, &v2_dek(vector)).unwrap_err();
+        assert!(
+            matches!(err, SecureCoreError::CryptoError(_)),
+            "{}: downgraded V2 stream must fail authentication, got {err:?}",
+            vector.id
+        );
+        assert!(sink.is_empty());
+    }
+}
+
+#[test]
+fn test_compat_v2_stream_deterministic_regeneration() {
+    for vector in &load_v2_pack().vectors {
+        let base_nonce: [u8; 12] = hex_to_bytes(&vector.header.base_nonce).try_into().unwrap();
+        let mut regenerated = Vec::new();
+        secure_core::streaming::encrypt_stream_with_nonce_test(
+            Cursor::new(v2_file(vector, "plain.bin")),
+            &mut regenerated,
+            &v2_dek(vector),
+            base_nonce,
+        )
+        .unwrap();
+        assert_eq!(
+            v2_file(vector, "encrypted.enc"),
+            regenerated,
+            "FORMAT REGRESSION: V2 stream vector {} does not regenerate byte-for-byte",
+            vector.id
+        );
+    }
+}
