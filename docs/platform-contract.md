@@ -120,6 +120,15 @@ Les autres versions connues (rétro-compat deserialization) :
 
 Voir `docs/recovery-format-v1.md#recoverywrap-schema` pour la politique d'évolution.
 
+### 6. Version du format `.enc` (streams V2 depuis 1.0.0)
+
+Depuis secure-core 1.0.0, `encrypt_file` (C et JNI) écrit des streams **V2** ; `decrypt_file` lit V2 et V1.1. Les documents existants n'ont pas besoin d'être migrés. Conséquences pour la plateforme :
+
+- **Échanges entre versions** : un `.enc` V2 (document, ou sauvegarde/bundle qui en contient) n'est pas lisible par une app embarquant secure-core 0.x, qui répond `UnsupportedVersion` (status `2`). Toutes les installations qui partagent des fichiers doivent passer en 1.x.
+- **Status `2` à l'ouverture** : signifie « fichier produit par une version plus récente ». Afficher un message du type « Mettez à jour l'app », jamais « fichier corrompu ».
+- **Seuil streaming / in-memory** : `decrypt_bytes` refuse un stream V2 (`INVALID_FORMAT`). La plateforme doit continuer à ouvrir par `decrypt_file` les documents chiffrés par `encrypt_file`.
+- **Rechiffrement V1.1 → V2** : facultatif (les streams V1.1 restent sûrs avec le lecteur strict de 1.x). S'il est fait, même procédure qu'une migration : déchiffrer vers un temporaire, `encrypt_file`, remplacement atomique, puis `SecureDelete` du clair.
+
 ## Ce que le core ne fera JAMAIS
 
 Ces garanties sont des invariants de conception. Toute violation est un bug de sécurité.

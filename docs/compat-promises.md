@@ -1,9 +1,13 @@
-# Compatibility Promises — .enc V1 and V1.1 Formats
+# Compatibility Promises — .enc V1, V1.1 and V2 Formats
 
 ## Golden Rule
 
-**Tout fichier `.enc` V1 ou V1.1 produit par Android v1.0+ / v0.2.0+ sera dechiffrable
-par iOS V1/V1.1 et toutes versions futures V1.x.**
+**Tout fichier `.enc` V1 (in-memory), V1.1 (stream) ou V2 (stream) produit par une
+plateforme compatible sera dechiffrable par toutes les versions 1.x de secure-core.**
+
+V2 (1.0.0, streaming only) authenticates the full header in every chunk; secure-core 1.x
+writes V2 streams and still reads V1.1 streams. V2 files are **not** readable by
+secure-core 0.x (clean `UnsupportedVersion` error). See `docs/enc-format-v2.md`.
 
 Any `.enc` file produced by any platform implementing V1.x (Android, iOS, desktop) must be
 decryptable by any other V1.x-compatible platform, now and in all future V1.x releases.
@@ -47,12 +51,28 @@ The directory `testdata/compat/v1_1/stream/` contains golden reference streams:
 
 Each vector carries `plain.bin`, `encrypted.enc`, and `metadata.json`; `vectors.json` and
 `test_deks.json` catalog the pack. `encrypted.enc` is produced with a fixed base nonce via
-`encrypt_stream_with_nonce_test` (behind the `_test-vectors` feature), so regeneration is
-byte-for-byte reproducible.
+`encrypt_stream_v1_1_with_nonce_test` (behind the `_test-vectors` feature, the only V1.1
+writer left since 1.0.0), so regeneration is byte-for-byte reproducible.
 
 `tests/compat_tests.rs` verifies each V1.1 vector for: (a) round-trip decryption, (b)
 `FLAG_STREAM_FINAL_CHUNK` present in the header, (c) last-chunk stripping is rejected,
 (d) byte-for-byte regeneration.
+
+### V2 — streaming (`encrypt_stream` / `decrypt_stream`, 1.0.0+)
+
+The directory `testdata/compat/v2/stream/` contains golden reference streams in the V2
+layout (version 2, chunk AAD = header || BE32(index | final marker)):
+
+| Vector | Plaintext size | Chunks | Description |
+|--------|----------------|--------|-------------|
+| `stream_empty` | 0 B | 1 | One empty final chunk (45 B file) |
+| `stream_single_chunk` | 2 KiB | 1 | Minimal non-empty stream |
+| `stream_multi_chunk` | `CHUNK_SIZE × 2 + 777` B | 3 | Two full chunks and a partial final chunk |
+
+Produced with `encrypt_stream_with_nonce_test` (fixed base nonce, own test keys).
+`tests/compat_tests.rs` checks that each vector decrypts with a V2 header, that truncation
+and a downgrade to V1.1 are rejected, and that it regenerates byte-for-byte. The pack was
+also verified independently with Apple CryptoKit from the specification alone.
 
 ## Breaking Change Policy
 
@@ -65,16 +85,19 @@ a new major version.
 - Changing the header layout (magic, field order, field sizes)
 - Changing the encryption algorithm or its parameters
 - Changing how AAD (Additional Authenticated Data) is computed
-- Any change that causes an existing `.enc` V1 file to fail decryption
+- Any change that causes an existing `.enc` V1, V1.1 or V2 file to fail decryption
 
 ### What is NOT a breaking change:
 - Adding new flag bits for **in-memory** blobs (readers must ignore unknown flags: the header is authenticated)
-
-Since 0.6.0, unknown flag bits in a **stream** header are rejected (`InvalidFormat`), because the stream header is not authenticated. A new streaming flag therefore requires readers that know it: it is additive for writers, but not readable by older streaming readers.
 - Adding new algorithm IDs (readers reject unknown algorithms gracefully)
 - Extending the header via `header_length` field (forward compatibility)
-- Adding a new sibling directory in `testdata/compat/` (e.g. `v1_1/stream/`) for newly
-  frozen layouts — existing subtrees must stay byte-for-byte identical.
+- Adding a new sibling directory in `testdata/compat/` (e.g. `v1_1/stream/`, `v2/stream/`)
+  for newly frozen layouts — existing subtrees must stay byte-for-byte identical.
+
+Unknown flag bits in a **stream** header are rejected (`InvalidFormat`), in V1.1 (header
+not authenticated) and in V2 (semantics unknown to the reader). A new streaming flag
+therefore requires readers that know it: it is additive for writers, but not readable by
+older streaming readers.
 
 #### V1.1 — `FLAG_STREAM_FINAL_CHUNK` (additive, 2026-04)
 
@@ -95,24 +118,33 @@ changes. See `docs/enc-format-v1.md#streaming-v1.1` for semantics.
 The V1 in-memory pack in `testdata/compat/v1/` is unaffected; V1.1 ships its own pack
 under `testdata/compat/v1_1/stream/`.
 
+#### V2 — header in every chunk's AAD (1.0.0, breaking)
+
+`encrypt_stream` / `encrypt_file` (and their C/JNI entry points) write version-2 streams.
+Why: in V1.1 the stream header is not authenticated, which made GHSA-43rf-fggr-vcgg
+possible and left every future header field forgeable (ADR-003). Readers keep accepting
+V1.1, so no existing file needs migrating; re-encrypting V1.1 files to V2 is optional.
+Breaking because secure-core 0.x cannot read V2. The `v1/` and `v1_1/` packs are
+unchanged; V2 ships `testdata/compat/v2/stream/`.
+
 ### Diff-check policy
 
 The `compat-tests` CI job regenerates the full corpus via
 `cargo test --test generate_compat_pack --features _test-vectors -- --ignored` and then
-runs `git diff --quiet testdata/compat/`. **Any diff — on `v1/` OR on `v1_1/`** —
-fails the build. An intentional format change requires (a) a version bump documented in
+checks `git status --porcelain testdata/compat/`. **Any change — on `v1/`, `v1_1/` or
+`v2/`, including a regenerated file that is not committed** — fails the build. An intentional format change requires (a) a version bump documented in
 `CHANGELOG.md`, (b) a migration note in this file, and (c) a deliberate commit of the
 regenerated fixtures.
 
 ## Migration Procedure
 
-If a V2 format is needed:
+Followed for V2 (1.0.0); apply the same steps for any future format version:
 
-1. Create `testdata/compat/v2/` with new golden files
-2. Keep `testdata/compat/v1/` — V1 tests must continue to pass
-3. Both V1 and V2 compat tests run in CI simultaneously
-4. Update `EncHeader::from_bytes()` to accept both versions
-5. Document the migration path in `docs/enc-format-v2.md`
+1. Create `testdata/compat/vN/` with new golden files
+2. Keep the existing packs — their tests must continue to pass, byte-identical
+3. All compat tests run in CI simultaneously
+4. Update `EncHeader::from_bytes()` and the decoders to accept every supported version
+5. Document the format and the migration path in `docs/enc-format-vN.md` (+ an ADR)
 6. Bump the crate major version
 
 ## Regenerating the Pack

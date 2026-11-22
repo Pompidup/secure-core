@@ -9,7 +9,7 @@ Pure Rust, bytes-in/bytes-out encryption core designed for mobile platforms (And
 - **AES-256-GCM** authenticated encryption (NIST approved, 128-bit auth tags)
 - **In-memory** encrypt/decrypt for small payloads
 - **Chunked streaming** for large files (64 KB chunks, constant memory usage)
-- **Custom `.enc` V1 format** (header authenticated as AAD in-memory; streams require the final-chunk flag)
+- **Custom `.enc` format**: V1 in-memory (header as AAD) and V2 streams (header authenticated in every chunk); V1.1 streams remain readable
 - **C-compatible FFI** for Kotlin/JNI and Swift integration
 - **Recovery** via passphrase-encrypted bundles (Argon2id)
 - **Zeroize on drop** for key material (`Dek` struct)
@@ -86,7 +86,7 @@ The library exposes 9 `extern "C"` functions, declared in [`include/secure_core.
 | `secure_core_encrypt_bytes` | In-memory encrypt |
 | `secure_core_decrypt_bytes` | In-memory decrypt |
 | `secure_core_encrypt_file` | Streaming file encrypt |
-| `secure_core_decrypt_file` | Streaming file decrypt (V1.1 streams) |
+| `secure_core_decrypt_file` | Streaming file decrypt (V2 and V1.1 streams) |
 | `secure_core_wrap_dek_with_passphrase` | Wrap a DEK into a passphrase recovery bundle (Argon2id + AES-256-GCM, JSON) |
 | `secure_core_unwrap_dek_with_passphrase` | Recover the DEK from a recovery bundle |
 | `secure_core_version` | Returns crate version string (static, never freed) |
@@ -112,7 +112,7 @@ Branch on the status code; `error_msg` is diagnostic only. The Android JNI bridg
 
 See [FFI API reference](docs/ffi-api.md) for full signatures and examples, and [FFI ABI V1](docs/ffi-abi-v1.md) for the stability promises.
 
-## `.enc` V1 format
+## `.enc` format
 
 ```
 [SENC 4B][version 2B][algo 1B][nonce 12B][flags 2B][header_len 4B] = 25B header
@@ -120,7 +120,7 @@ See [FFI API reference](docs/ffi-api.md) for full signatures and examples, and [
 [chunk_len 4B | chunk ciphertext + tag]*                            (streaming)
 ```
 
-In-memory blobs authenticate the header as AAD, so any tampering is detected on decryption. Streams authenticate each chunk index and the final chunk, but not the header. Readers therefore require `FLAG_STREAM_FINAL_CHUNK` and reject legacy pre-0.3.0 streams (no longer readable since 1.0.0; re-encrypt them with 0.6.x first). See [`.enc` V1 format spec](docs/enc-format-v1.md).
+In-memory blobs (version 1) authenticate the header as AAD. Streams are written in **V2** since 1.0.0 (version 2): every chunk authenticates the full header, its index and, for the last one, a final marker, so header tampering, truncation, reordering and downgrade are all detected. V1.1 streams (0.3.0 to 0.6.x) remain readable; legacy pre-0.3.0 streams are not. See the [V1 spec](docs/enc-format-v1.md) and the [V2 spec](docs/enc-format-v2.md).
 
 ## Performance
 
@@ -138,7 +138,7 @@ Measured on Apple Silicon, single-threaded (criterion 0.5).
 
 - AES-256-GCM with random 96-bit nonces (`ThreadRng`: CSPRNG seeded from OS entropy)
 - Full 128-bit authentication tags
-- Header authenticated as AAD (in-memory); streaming truncation detected via a final-chunk marker, with legacy streams rejected by default
+- Header authenticated as AAD in-memory and in every chunk of V2 streams; streaming truncation detected via a final-chunk marker
 - Per-chunk nonce derivation (XOR base nonce with chunk index)
 - `Dek` derives `ZeroizeOnDrop` with redacted `Debug`
 - No secrets in logs; no plaintext written anywhere except `decrypt_file`'s caller-chosen output
@@ -153,14 +153,15 @@ See [Security considerations](docs/security-considerations.md) and [Threat model
 | [API overview](docs/api-overview.md) | Rust API, FFI API, format summary |
 | [FFI API reference](docs/ffi-api.md) | C function signatures, ownership rules |
 | [FFI ABI V1](docs/ffi-abi-v1.md) | ABI stability promises |
-| [`.enc` V1 format spec](docs/enc-format-v1.md) | Binary format specification |
+| [`.enc` V1 format spec](docs/enc-format-v1.md) | Binary format: in-memory V1, streaming V1.1 |
+| [`.enc` V2 format spec](docs/enc-format-v2.md) | Streaming V2: header authenticated in every chunk |
 | [Platform contract](docs/platform-contract.md) | Core vs platform responsibilities |
 | [Recovery format V1](docs/recovery-format-v1.md) | Passphrase recovery bundle spec |
 | [Wraps schema V1](docs/wraps-schema-v1.md) | Wrapped DEK schema |
 | [Threat model](docs/threat-model.md) | Covered/uncovered threats |
 | [Security considerations](docs/security-considerations.md) | Nonce uniqueness, key handling, limits |
 | [Security audit V1](docs/security-audit-v1.md) | Pre-release audit results |
-| [Compatibility](docs/compatibility.md) | V1 forward-compat promise, V2 strategy |
+| [Compatibility](docs/compatibility.md) | Forward-compat promise, V1 / V1.1 / V2 reader matrix |
 | [Compat promises](docs/compat-promises.md) | ABI/format stability guarantees |
 | [Build Android](docs/build-android.md) | Cross-compilation setup for Android |
 | [Build iOS](docs/build-ios.md) | Cross-compilation setup for iOS |
@@ -170,6 +171,7 @@ See [Security considerations](docs/security-considerations.md) and [Threat model
 | [Wraps error codes](docs/wraps-error-codes.md) | DEK wrap/unwrap error codes and their platform mapping |
 | [ADR-001: Algorithm choice](docs/decisions/ADR-001-algo-choice.md) | Why AES-256-GCM |
 | [ADR-002: Streaming strategy](docs/decisions/ADR-002-streaming-strategy.md) | Why 64 KB chunks |
+| [ADR-003: Stream header in AAD](docs/decisions/ADR-003-stream-header-in-aad.md) | Why the V2 streaming format |
 | [FAQ](docs/faq.md) | Common questions |
 
 ## Project structure
