@@ -63,7 +63,7 @@ Les deux chemins d'API ont des bornes différentes — by design, pas un oubli :
 Champ `u16` little-endian. Le traitement d'un bit inconnu dépend du mode, car seul l'in-memory authentifie le header :
 
 - **In-memory** : le header est l'AAD GCM, un bit inconnu vient donc forcément d'un écrivain légitime. Le lecteur **DOIT** l'ignorer (forward compatibility).
-- **Streaming** : le header n'est pas authentifié, un bit inconnu peut venir d'une corruption ou d'une falsification. Depuis 0.6.0, le lecteur **DOIT** rejeter le stream (`InvalidFormat`) avant d'écrire du clair, y compris via l'API de migration `*_allow_legacy`. Tout nouveau flag de streaming exige donc une nouvelle version du lecteur.
+- **Streaming** : le header n'est pas authentifié, un bit inconnu peut venir d'une corruption ou d'une falsification. Depuis 0.6.0, le lecteur **DOIT** rejeter le stream (`InvalidFormat`) avant d'écrire du clair. Tout nouveau flag de streaming exige donc une nouvelle version du lecteur.
 
 | Bit    | Nom                         | Sémantique                                                                 |
 | ------ | --------------------------- | -------------------------------------------------------------------------- |
@@ -81,7 +81,7 @@ Les blobs produits par `encrypt_stream` portent `flags & FLAG_STREAM_FINAL_CHUNK
 
 **Depuis 0.5.0, un stream sans `FLAG_STREAM_FINAL_CHUNK` est rejeté par défaut** (`decrypt_stream` / `decrypt_file` → `InvalidFormat`, avant toute écriture de clair). En streaming, le header n'entre pas dans l'AAD des chunks, et un chunk non-final V1.1 a exactement l'AAD d'un chunk V1.0. Honorer un flag absent permettrait donc d'effacer le flag d'un stream V1.1 tronqué et de le faire accepter comme un stream legacy.
 
-Les blobs produits avant V1.1 (`flags == 0`, secure-core < 0.3.0) restent lisibles **uniquement** via l'API de migration explicite `decrypt_stream_allow_legacy` / `decrypt_file_allow_legacy` (C : `secure_core_decrypt_file_allow_legacy`, JNI : `nativeDecryptFileAllowLegacy`). Elle applique la sémantique legacy (AAD = `chunk_index.to_be_bytes()` pour tous les chunks) **sans détection de troncature**. À utiliser une seule fois, pour rechiffrer ces fichiers en V1.1.
+Les streams produits avant V1.1 (`flags == 0`, secure-core < 0.3.0, AAD = `chunk_index.to_be_bytes()` pour tous les chunks) **ne sont plus lisibles depuis 1.0.0**. En 0.5.x et 0.6.x, une API de migration explicite (`*_allow_legacy`, sans détection de troncature) permettait de les rechiffrer une fois en V1.1 ; elle est retirée en 1.0.0. Pour un tel fichier : le rechiffrer avec une version 0.5.x ou 0.6.x avant de passer en 1.0.
 
 ### Auth tag
 

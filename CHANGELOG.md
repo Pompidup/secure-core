@@ -11,7 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+### Removed
+
+- **Breaking:** the migration-only legacy stream reader added in 0.5.0:
+  `streaming::decrypt_stream_allow_legacy`, `api::decrypt_file_allow_legacy`, C
+  `secure_core_decrypt_file_allow_legacy` and JNI `nativeDecryptFileAllowLegacy`
+  (C ABI: 9 functions; JNI: 7). It read legacy V1.0 streams (pre-0.3.0, `flags == 0`)
+  without truncation detection. Legacy streams can no longer be read: re-encrypt them
+  with 0.5.x or 0.6.x before upgrading. The `_test-vectors` helper
+  `encrypt_stream_legacy_v1_test` is removed too. Formats and goldens are unchanged.
+
 ### Security
+
+- No decryption path without truncation detection remains in the library.
 
 
 ## [0.6.0] - 2026-11-12
