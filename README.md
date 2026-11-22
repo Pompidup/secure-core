@@ -79,7 +79,7 @@ cargo bench
 
 ## FFI usage
 
-The library exposes 10 `extern "C"` functions, declared in [`include/secure_core.h`](include/secure_core.h):
+The library exposes 9 `extern "C"` functions, declared in [`include/secure_core.h`](include/secure_core.h):
 
 | Function | Description |
 |---|---|
@@ -87,7 +87,6 @@ The library exposes 10 `extern "C"` functions, declared in [`include/secure_core
 | `secure_core_decrypt_bytes` | In-memory decrypt |
 | `secure_core_encrypt_file` | Streaming file encrypt |
 | `secure_core_decrypt_file` | Streaming file decrypt (V1.1 streams) |
-| `secure_core_decrypt_file_allow_legacy` | Migration only: also decrypts pre-0.3.0 streams, without truncation detection |
 | `secure_core_wrap_dek_with_passphrase` | Wrap a DEK into a passphrase recovery bundle (Argon2id + AES-256-GCM, JSON) |
 | `secure_core_unwrap_dek_with_passphrase` | Recover the DEK from a recovery bundle |
 | `secure_core_version` | Returns crate version string (static, never freed) |
@@ -121,7 +120,7 @@ See [FFI API reference](docs/ffi-api.md) for full signatures and examples, and [
 [chunk_len 4B | chunk ciphertext + tag]*                            (streaming)
 ```
 
-In-memory blobs authenticate the header as AAD, so any tampering is detected on decryption. Streams authenticate each chunk index and the final chunk, but not the header. Readers therefore require `FLAG_STREAM_FINAL_CHUNK` and reject legacy streams, except through the migration-only `*_allow_legacy` API. See [`.enc` V1 format spec](docs/enc-format-v1.md).
+In-memory blobs authenticate the header as AAD, so any tampering is detected on decryption. Streams authenticate each chunk index and the final chunk, but not the header. Readers therefore require `FLAG_STREAM_FINAL_CHUNK` and reject legacy pre-0.3.0 streams (no longer readable since 1.0.0; re-encrypt them with 0.6.x first). See [`.enc` V1 format spec](docs/enc-format-v1.md).
 
 ## Performance
 

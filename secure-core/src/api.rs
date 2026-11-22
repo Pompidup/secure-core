@@ -7,9 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::crypto::Dek;
 use crate::error::SecureCoreError;
 use crate::metadata::PartialDocumentMetadata;
-use crate::streaming::{
-    decrypt_stream, decrypt_stream_allow_legacy, encrypt_stream, StreamMetadata,
-};
+use crate::streaming::{decrypt_stream, encrypt_stream, StreamMetadata};
 
 /// Result of a file encryption operation.
 ///
@@ -87,22 +85,6 @@ pub fn decrypt_file(
 ) -> Result<StreamMetadata, SecureCoreError> {
     let input = open_input_distinct_from(input_path, output_path)?;
     write_atomically(output_path, |output| decrypt_stream(input, output, dek)).map(|(m, _)| m)
-}
-
-/// Like [`decrypt_file`], but also accepts legacy V1.0 streams.
-///
-/// **Security:** truncation of legacy input is not detected. Reserved for a
-/// one-time migration of pre-0.3.0 files; see [`decrypt_stream_allow_legacy`].
-pub fn decrypt_file_allow_legacy(
-    input_path: &Path,
-    output_path: &Path,
-    dek: &Dek,
-) -> Result<StreamMetadata, SecureCoreError> {
-    let input = open_input_distinct_from(input_path, output_path)?;
-    write_atomically(output_path, |output| {
-        decrypt_stream_allow_legacy(input, output, dek)
-    })
-    .map(|(m, _)| m)
 }
 
 /// Opens `input_path` and checks that `output_path` does not designate the

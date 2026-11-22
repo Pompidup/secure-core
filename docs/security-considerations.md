@@ -98,7 +98,7 @@ The `Dek` type implements `Debug` as `Dek([REDACTED])`, preventing accidental ke
 - In-memory: the header is authenticated as AAD, so any modification is detected on decryption.
 - Streaming: the header is **not** part of the chunk AAD. The nonce is protected indirectly (it derives every chunk nonce), but `version` and `flags` are not. Readers therefore require `FLAG_STREAM_FINAL_CHUNK` and reject streams without it (since 0.5.0).
 - Chunk ordering is enforced via the chunk index (nonce and AAD), so reordering is detected. Truncation is detected via the final-chunk marker, including when the flag has been cleared.
-- The migration-only `decrypt_stream_allow_legacy` / `*_allow_legacy` entry points do **not** detect truncation of legacy streams. Use them once to re-encrypt pre-0.3.0 files, never for regular reads.
+- There is no reader without truncation detection: the migration-only `*_allow_legacy` entry points of 0.5.x/0.6.x, which read legacy pre-0.3.0 streams unchecked, are removed in 1.0.0.
 
 ### Metadata
 

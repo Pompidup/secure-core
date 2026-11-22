@@ -469,31 +469,10 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
     })
 }
 
-/// MIGRATION ONLY: decrypts a V1.1 or legacy V1.0 file. Truncation of legacy
-/// input is not detected; re-encrypt the result with `nativeEncryptFile`.
-#[no_mangle]
-pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFileAllowLegacy<'a>(
-    env: JNIEnv<'a>,
-    _class: JClass<'a>,
-    input_path: JString<'a>,
-    output_path: JString<'a>,
-    dek: JByteArray<'a>,
-) -> JObject<'a> {
-    jni_guard(env, move |env| {
-        decrypt_file_jni(
-            env,
-            input_path,
-            output_path,
-            dek,
-            api::decrypt_file_allow_legacy,
-        )
-    })
-}
-
 type DecryptFileFn =
     fn(&Path, &Path, &Dek) -> Result<crate::streaming::StreamMetadata, SecureCoreError>;
 
-/// Shared marshalling for the two file-decrypt JNI entry points.
+/// Marshalling for the file-decrypt JNI entry point.
 fn decrypt_file_jni<'a>(
     mut env: JNIEnv<'a>,
     input_path: JString<'a>,

@@ -248,7 +248,6 @@ All functions use `extern "C"` ABI. The caller **must** free results via `secure
 | `secure_core_decrypt_bytes(blob, len, dek, dek_len) -> FfiResult` | In-memory decrypt |
 | `secure_core_encrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming encrypt |
 | `secure_core_decrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming decrypt (V1.1 streams) |
-| `secure_core_decrypt_file_allow_legacy(input_path, output_path, dek, dek_len) -> FfiResult` | Migration only: also pre-0.3.0 streams, no truncation detection |
 | `secure_core_wrap_dek_with_passphrase(dek, dek_len, passphrase) -> FfiResult` | Recovery bundle (JSON) from a DEK, blocking (Argon2id) |
 | `secure_core_unwrap_dek_with_passphrase(json, json_len, passphrase) -> FfiResult` | DEK (32 bytes) from a recovery bundle, blocking (Argon2id) |
 | `secure_core_free_buffer(FfiBuffer)` | Free a Rust-allocated buffer |
@@ -331,7 +330,7 @@ The encrypted output uses a custom binary format:
 ```
 
 - In-memory: the header is authenticated as AAD (tampering detected)
-- Streaming: the header is not in the chunk AAD; streams must carry `FLAG_STREAM_FINAL_CHUNK` (others are rejected unless decrypted through the migration-only `*_allow_legacy` API)
+- Streaming: the header is not in the chunk AAD; streams must carry `FLAG_STREAM_FINAL_CHUNK` (others, including legacy pre-0.3.0 streams, are rejected)
 - AES-256-GCM with 128-bit auth tags
 - Streaming: 64 KB chunks, per-chunk nonces derived via XOR
 

@@ -46,8 +46,8 @@ pub const MAX_STREAM_CHUNKS: u32 = LAST_CHUNK_AAD_MARKER - 1;
 /// the right tool for anything larger.
 pub const MAX_STREAM_PLAINTEXT_SIZE: u64 = (MAX_STREAM_CHUNKS as u64) * (CHUNK_SIZE as u64);
 
-/// Builds the per-chunk AAD. In legacy (V1.0) streams, `is_last` is always `false`
-/// so the result is `chunk_index.to_be_bytes()` — identical to the pre-flag format.
+/// Builds the per-chunk AAD: `chunk_index.to_be_bytes()`, with the top bit
+/// set on the final chunk.
 fn aad_for_chunk(chunk_index: u32, is_last: bool) -> [u8; 4] {
     let marker = if is_last { LAST_CHUNK_AAD_MARKER } else { 0 };
     (chunk_index | marker).to_be_bytes()
@@ -82,7 +82,7 @@ pub fn encrypt_stream<R: Read, W: Write>(
     output: W,
     dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError> {
-    encrypt_stream_impl(input, output, dek, true, None)
+    encrypt_stream_impl(input, output, dek, None)
 }
 
 /// Deterministic V1.1 encoder used to produce reproducible golden files.
@@ -96,31 +96,18 @@ pub fn encrypt_stream_with_nonce_test<R: Read, W: Write>(
     dek: &Dek,
     base_nonce: [u8; 12],
 ) -> Result<StreamMetadata, SecureCoreError> {
-    encrypt_stream_impl(input, output, dek, true, Some(base_nonce))
-}
-
-/// Legacy V1 encoder (no final-chunk marker). Only exposed for compat tests.
-#[cfg(any(test, feature = "_test-vectors"))]
-pub fn encrypt_stream_legacy_v1_test<R: Read, W: Write>(
-    input: R,
-    output: W,
-    dek: &Dek,
-) -> Result<StreamMetadata, SecureCoreError> {
-    encrypt_stream_impl(input, output, dek, false, None)
+    encrypt_stream_impl(input, output, dek, Some(base_nonce))
 }
 
 fn encrypt_stream_impl<R: Read, W: Write>(
     mut input: R,
     mut output: W,
     dek: &Dek,
-    with_final_flag: bool,
     forced_nonce: Option<[u8; 12]>,
 ) -> Result<StreamMetadata, SecureCoreError> {
     let base_nonce = forced_nonce.unwrap_or_else(generate_nonce);
     let mut header = EncHeader::new_v1(base_nonce);
-    if with_final_flag {
-        header.flags |= FLAG_STREAM_FINAL_CHUNK;
-    }
+    header.flags |= FLAG_STREAM_FINAL_CHUNK;
     let header_bytes = header.to_bytes();
 
     output.write_all(&header_bytes)?;
@@ -169,15 +156,15 @@ fn encrypt_stream_impl<R: Read, W: Write>(
         }
     }
 
-    // Flush the final buffered chunk with the terminal marker (or without it
-    // in legacy mode). `pending` is always `Some` here: either we buffered a
-    // real chunk, or we buffered an empty vec for the empty-input case.
+    // Flush the final buffered chunk with the terminal marker. `pending` is
+    // always `Some` here: either we buffered a real chunk, or we buffered an
+    // empty vec for the empty-input case.
     let final_chunk = pending.expect("pending chunk always set before final flush");
     write_chunk(
         &cipher,
         &base_nonce,
         chunk_index,
-        with_final_flag,
+        true,
         &final_chunk,
         &mut output,
         &mut total_plaintext,
@@ -249,35 +236,12 @@ fn checked_next_index(current: u32) -> Result<u32, SecureCoreError> {
 /// mode, so honouring a missing flag would let an attacker clear it and have
 /// a truncated V1.1 stream accepted as a legacy one.
 ///
-/// Use [`decrypt_stream_allow_legacy`] only to migrate genuine pre-V1.1 files.
+/// Legacy V1.0 streams (secure-core < 0.3.0) cannot be read by this version
+/// at all: re-encrypt them with secure-core 0.5.x or 0.6.x before upgrading.
 pub fn decrypt_stream<R: Read, W: Write>(
-    input: R,
-    output: W,
-    dek: &Dek,
-) -> Result<StreamMetadata, SecureCoreError> {
-    decrypt_stream_impl(input, output, dek, false)
-}
-
-/// Decrypts a V1.1 stream, **or** a legacy V1.0 stream (no final-chunk flag).
-///
-/// **Security:** legacy V1.0 streams carry no end-of-stream authentication,
-/// and a truncated V1.1 stream whose flag was cleared looks exactly like one.
-/// Truncation of such input is therefore **not** detected. Use this only
-/// for a one-time migration of files written before secure-core 0.3.0:
-/// decrypt them, then re-encrypt with [`encrypt_stream`].
-pub fn decrypt_stream_allow_legacy<R: Read, W: Write>(
-    input: R,
-    output: W,
-    dek: &Dek,
-) -> Result<StreamMetadata, SecureCoreError> {
-    decrypt_stream_impl(input, output, dek, true)
-}
-
-fn decrypt_stream_impl<R: Read, W: Write>(
     mut input: R,
     mut output: W,
     dek: &Dek,
-    allow_legacy: bool,
 ) -> Result<StreamMetadata, SecureCoreError> {
     let mut header_buf = vec![0u8; 25];
     input
@@ -295,11 +259,10 @@ fn decrypt_stream_impl<R: Read, W: Write>(
             "stream header has unknown flag bits {unknown_flags:#06x}"
         )));
     }
-    let expects_final_marker = header.flags & FLAG_STREAM_FINAL_CHUNK != 0;
-    if !expects_final_marker && !allow_legacy {
+    if header.flags & FLAG_STREAM_FINAL_CHUNK == 0 {
         return Err(SecureCoreError::InvalidFormat(
             "stream lacks FLAG_STREAM_FINAL_CHUNK (legacy V1.0 layout or downgraded header); \
-             use decrypt_stream_allow_legacy only to migrate pre-0.3.0 files"
+             legacy streams are no longer readable, re-encrypt them with secure-core 0.6"
                 .into(),
         ));
     }
@@ -328,23 +291,15 @@ fn decrypt_stream_impl<R: Read, W: Write>(
             // final chunk; otherwise the input contained no chunks at all.
             match pending.take() {
                 Some(buf) => {
-                    let plaintext = decrypt_chunk(
-                        &cipher,
-                        &base_nonce,
-                        chunk_index,
-                        expects_final_marker,
-                        &buf,
-                    )?;
+                    let plaintext = decrypt_chunk(&cipher, &base_nonce, chunk_index, true, &buf)?;
                     output.write_all(&plaintext)?;
                     total_plaintext += plaintext.len() as u64;
                     chunk_index = checked_next_index(chunk_index)?;
                 }
                 None => {
-                    if expects_final_marker {
-                        return Err(SecureCoreError::InvalidFormat(
-                            "V1.1 stream is missing its final chunk".into(),
-                        ));
-                    }
+                    return Err(SecureCoreError::InvalidFormat(
+                        "V1.1 stream is missing its final chunk".into(),
+                    ));
                 }
             }
             break;

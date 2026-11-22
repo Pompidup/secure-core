@@ -10,10 +10,10 @@ decryptable by any other V1.x-compatible platform, now and in all future V1.x re
 V1.1 adds streaming truncation detection without breaking any V1.0 reader (the new header
 flag is strictly additive and pre-V1.1 blobs keep their legacy AAD layout).
 
-**Exception (0.5.0, security):** legacy V1.0 *streams* (`flags == 0`) are no longer
-accepted by the default `decrypt_stream` / `decrypt_file`. They stay decryptable through
-the explicit migration API `*_allow_legacy` (see V1.1 below). In-memory V1 blobs are not
-affected.
+**Exception (security):** legacy V1.0 *streams* (`flags == 0`, written before 0.3.0) are
+rejected by `decrypt_stream` / `decrypt_file` since 0.5.0, and **cannot be read at all
+since 1.0.0**: the migration-only `*_allow_legacy` API of 0.5.x/0.6.x is removed (see
+V1.1 below). In-memory V1 blobs are not affected.
 
 ## Compat Packs
 
@@ -84,11 +84,14 @@ Streaming `.enc` blobs now opt into truncation detection by setting `flags & 0x0
 authenticated, so accepting `flags == 0` let an attacker clear the flag of a truncated
 V1.1 stream and have it decrypt as legacy. `decrypt_stream` / `decrypt_file` (and the
 C/JNI `decrypt_file` entry points) now reject `flags == 0` streams with `InvalidFormat`.
-Pre-0.3.0 streams remain decryptable through `decrypt_stream_allow_legacy`,
-`api::decrypt_file_allow_legacy`, `secure_core_decrypt_file_allow_legacy` and
-`nativeDecryptFileAllowLegacy`. These are reserved for a one-time re-encryption to V1.1
-and provide no truncation detection. No byte of any golden file changes. See
-`docs/enc-format-v1.md#streaming-v1.1` for semantics.
+In 0.5.x and 0.6.x, pre-0.3.0 streams remained decryptable through a migration-only API
+(`decrypt_stream_allow_legacy`, `api::decrypt_file_allow_legacy`,
+`secure_core_decrypt_file_allow_legacy`, `nativeDecryptFileAllowLegacy`), with no
+truncation detection, for a one-time re-encryption to V1.1.
+
+**1.0.0: that API is removed** (breaking, major version). Migration path: re-encrypt
+legacy streams with secure-core 0.5.x or 0.6.x, then upgrade. No byte of any golden file
+changes. See `docs/enc-format-v1.md#streaming-v1.1` for semantics.
 The V1 in-memory pack in `testdata/compat/v1/` is unaffected; V1.1 ships its own pack
 under `testdata/compat/v1_1/stream/`.
 
