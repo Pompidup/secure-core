@@ -24,8 +24,8 @@ Out of scope:
 
 | Version | Supported |
 | ------- | --------- |
-| 0.6.x (latest) | Yes |
-| < 0.6   | No: 0.6.0 fixes six advisories and 0.5.0 two more (see the [advisories](https://github.com/Pompidup/secure-core/security/advisories) and `CHANGELOG.md`); upgrade |
+| 1.0.x (latest) | Yes |
+| < 1.0   | No: upgrade (see the upgrade notes of 1.0.0 in `CHANGELOG.md`). 0.6.0 fixes six advisories and 0.5.0 two more (see the [advisories](https://github.com/Pompidup/secure-core/security/advisories)); anything older than 0.6.0 is vulnerable |
 
 Only the latest minor release receives security fixes. Releases and their binaries are listed on the [releases page](https://github.com/Pompidup/secure-core/releases).
 
