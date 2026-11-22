@@ -3,10 +3,14 @@ use crate::error::SecureCoreError;
 /// Magic bytes identifying the `.enc` format: ASCII "SENC".
 pub const MAGIC: [u8; 4] = [0x53, 0x45, 0x4E, 0x43];
 
-/// Current format version.
+/// Format version 1: in-memory blobs, and V1.1 streams (read only since 1.0.0).
 pub const FORMAT_VERSION_V1: u16 = 1;
 
-/// Total header size in bytes for V1.
+/// Format version 2: streams whose header is part of every chunk's AAD
+/// (docs/enc-format-v2.md). Written by `encrypt_stream` since 1.0.0.
+pub const FORMAT_VERSION_V2: u16 = 2;
+
+/// Total header size in bytes, identical for V1 and V2.
 const HEADER_SIZE_V1: u32 = 25;
 
 /// V1.1 streaming flag: the last chunk's AAD is marked to prove the stream
@@ -35,7 +39,7 @@ impl AlgorithmId {
     }
 }
 
-/// Header of the `.enc` V1 binary format.
+/// Header of the `.enc` binary format (same layout for V1 and V2).
 ///
 /// ```text
 /// magic (4) | version (2) | algo (1) | nonce (12) | flags (2) | header_length (4)
@@ -58,6 +62,15 @@ impl EncHeader {
             nonce,
             flags: 0,
             header_length: HEADER_SIZE_V1,
+        }
+    }
+
+    /// Creates a V2 stream header: version 2 with `FLAG_STREAM_FINAL_CHUNK`.
+    pub fn new_stream_v2(nonce: [u8; NONCE_SIZE]) -> Self {
+        Self {
+            version: FORMAT_VERSION_V2,
+            flags: FLAG_STREAM_FINAL_CHUNK,
+            ..Self::new_v1(nonce)
         }
     }
 
@@ -93,11 +106,13 @@ impl EncHeader {
 
         // Version: only versions this build knows are accepted. Version 0
         // was never written and must not slip through as "older than 1".
+        // Which version is valid for which mode (in-memory, stream) is
+        // checked by the decoders.
         let version = u16::from_le_bytes([data[4], data[5]]);
-        if version != FORMAT_VERSION_V1 {
+        if !matches!(version, FORMAT_VERSION_V1 | FORMAT_VERSION_V2) {
             return Err(SecureCoreError::UnsupportedVersion {
                 found: version,
-                max_supported: FORMAT_VERSION_V1,
+                max_supported: FORMAT_VERSION_V2,
             });
         }
 

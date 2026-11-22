@@ -131,9 +131,18 @@ fn encrypt_bytes_with_nonce(
 }
 
 /// Decrypts a `.enc` V1 blob and returns the plaintext.
+///
+/// Only version 1 exists in-memory: a V2 header denotes a stream, which must
+/// be read with [`crate::streaming::decrypt_stream`] (`InvalidFormat`).
 pub fn decrypt_bytes(blob: &[u8], dek: &[u8; 32]) -> Result<Vec<u8>, SecureCoreError> {
     validate_dek(dek)?;
     let header = EncHeader::from_bytes(blob)?;
+    if header.version != crate::format::FORMAT_VERSION_V1 {
+        return Err(SecureCoreError::InvalidFormat(format!(
+            "version {} is a streaming format; use decrypt_stream",
+            header.version
+        )));
+    }
     let header_len = header.header_length as usize;
 
     let payload = blob

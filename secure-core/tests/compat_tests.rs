@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use secure_core::crypto::{decrypt_bytes, encrypt_bytes_with_nonce_test, Dek};
 use secure_core::error::SecureCoreError;
 use secure_core::format::{EncHeader, FLAG_STREAM_FINAL_CHUNK};
-use secure_core::streaming::{decrypt_stream, encrypt_stream_with_nonce_test};
+use secure_core::streaming::{decrypt_stream, encrypt_stream_v1_1_with_nonce_test};
 use sha2::{Digest, Sha256};
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -488,8 +488,13 @@ fn test_compat_v1_1_stream_deterministic_regeneration() {
             std::fs::read(compat_v1_1_stream_dir().join(&vector.id).join("plain.bin")).unwrap();
 
         let mut regenerated = Vec::new();
-        encrypt_stream_with_nonce_test(Cursor::new(&plaintext), &mut regenerated, &dek, base_nonce)
-            .unwrap();
+        encrypt_stream_v1_1_with_nonce_test(
+            Cursor::new(&plaintext),
+            &mut regenerated,
+            &dek,
+            base_nonce,
+        )
+        .unwrap();
 
         let stored = std::fs::read(
             compat_v1_1_stream_dir()

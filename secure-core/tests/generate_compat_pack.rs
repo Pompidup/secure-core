@@ -22,7 +22,7 @@
 //! platforms. See docs/compat-promises.md.
 
 use secure_core::crypto::{encrypt_bytes_with_nonce_test, Dek};
-use secure_core::streaming::{encrypt_stream_with_nonce_test, CHUNK_SIZE};
+use secure_core::streaming::{encrypt_stream_v1_1_with_nonce_test, CHUNK_SIZE};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Cursor;
@@ -230,13 +230,17 @@ fn generate_stream_vector(
 
     fs::write(dir.join("plain.bin"), plaintext).unwrap();
 
-    // Build a temporary Dek; encrypt_stream_with_nonce_test forces the base
+    // Build a temporary Dek; encrypt_stream_v1_1_with_nonce_test forces the base
     // nonce so successive runs against the same inputs emit identical bytes.
     let dek = Dek::new(*dek_bytes);
     let mut encrypted = Vec::new();
-    let stream_meta =
-        encrypt_stream_with_nonce_test(Cursor::new(plaintext), &mut encrypted, &dek, base_nonce)
-            .unwrap();
+    let stream_meta = encrypt_stream_v1_1_with_nonce_test(
+        Cursor::new(plaintext),
+        &mut encrypted,
+        &dek,
+        base_nonce,
+    )
+    .unwrap();
     fs::write(dir.join("encrypted.enc"), &encrypted).unwrap();
 
     let plain_sha = sha256_hex(plaintext);
