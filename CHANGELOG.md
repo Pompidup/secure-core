@@ -9,7 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`.enc` V2 streaming format** (`docs/enc-format-v2.md`, ADR-003): same 25-byte
+  header with `version = 2`, and every chunk's AAD is `header || BE32(index | final
+  marker)`. Any header modification, including a downgrade to V1.1, now fails
+  authentication. Chunk framing, nonce derivation and the final marker are unchanged.
+- `format::FORMAT_VERSION_V2` and `EncHeader::new_stream_v2`.
+- V2 compat pack `testdata/compat/v2/stream/` (empty, single-chunk, multi-chunk vectors),
+  verified independently with Apple CryptoKit.
+- `_test-vectors`: `encrypt_stream_v1_1_with_nonce_test`, the V1.1 writer kept only to
+  regenerate the frozen V1.1 goldens.
+
 ### Changed
+
+- **Breaking (format):** `encrypt_stream`, `api::encrypt_file`, `secure_core_encrypt_file`
+  and `nativeEncryptFile` write **V2** streams. secure-core 0.x cannot read them
+  (`UnsupportedVersion`, status `2`): every installation that exchanges files or backups
+  must move to 1.x. `decrypt_stream` / `decrypt_file` read V2 and V1.1, so existing
+  documents need no migration.
+- `encrypt_stream_with_nonce_test` (`_test-vectors`) now writes V2.
+- `EncHeader::from_bytes` accepts versions 1 and 2 (`UnsupportedVersion { max_supported: 2 }`
+  otherwise). `decrypt_bytes` rejects a version-2 (stream) blob with `InvalidFormat`;
+  in-memory blobs stay version 1, and their goldens are unchanged.
+- CI: the golden-file check uses `git status --porcelain`, so uncommitted regenerated
+  files fail the build too.
 
 ### Removed
 
@@ -24,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - No decryption path without truncation detection remains in the library.
+- Stream headers are authenticated in every chunk (V2): closes the class of header
+  downgrade issues behind GHSA-43rf-fggr-vcgg for every new file.
 
 
 ## [0.6.0] - 2026-11-12

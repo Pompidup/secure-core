@@ -108,11 +108,13 @@ jobs:
       - name: Check golden files are deterministic
         run: |
           cargo test --test generate_compat_pack --features _test-vectors -- --ignored 2>&1
-          # Diff the full testdata/compat/ tree — catches any unintentional
-          # drift in v1/ (in-memory .enc) AND v1_1/stream/ (V1.1 streaming).
-          if ! git diff --quiet testdata/compat/; then
+          # Check the full testdata/compat/ tree — catches any unintentional
+          # drift in v1/ (in-memory), v1_1/stream/ and v2/stream/ (streaming).
+          # `git status --porcelain` also reports files the generator created
+          # but that are not committed, which `git diff` would miss.
+          if [ -n "$(git status --porcelain testdata/compat/)" ]; then
             echo "::error::FORMAT REGRESSION DETECTED — golden files differ after re-generation. Bump version or document migration (see docs/compat-promises.md)."
-            git diff --stat testdata/compat/
+            git status --porcelain testdata/compat/
             exit 1
           fi
       - name: Upload compat pack

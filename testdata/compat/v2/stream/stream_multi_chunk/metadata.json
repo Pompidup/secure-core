@@ -1,0 +1,16 @@
+{
+  "chunks": 3,
+  "ciphertextSize": 131934,
+  "contentHash": "3856e7df52c24347b4daa63002285e4a374a2650be48c531fc71a51045fa2341",
+  "headerParsed": {
+    "algorithm": "AES-256-GCM",
+    "algorithmId": "0x01",
+    "baseNonce": "3132333435363738393a3b3c",
+    "flags": "0x0001",
+    "flagsMeaning": "FLAG_STREAM_FINAL_CHUNK set; every chunk's AAD is header || BE32(index | final marker)",
+    "headerLength": 25,
+    "version": 2
+  },
+  "mimeType": "application/octet-stream",
+  "plaintextSize": 131849
+}

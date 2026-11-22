@@ -20,9 +20,15 @@
 //! `testdata/compat/v1_1/stream/` — two deterministic streaming vectors
 //! (single-chunk and multi-chunk) that freeze the V1.1 format across
 //! platforms. See docs/compat-promises.md.
+//!
+//! And the V2 streaming compat pack in `testdata/compat/v2/stream/`
+//! (empty, single-chunk and multi-chunk vectors, header in every chunk's
+//! AAD). See docs/enc-format-v2.md.
 
 use secure_core::crypto::{encrypt_bytes_with_nonce_test, Dek};
-use secure_core::streaming::{encrypt_stream_with_nonce_test, CHUNK_SIZE};
+use secure_core::streaming::{
+    encrypt_stream_v1_1_with_nonce_test, encrypt_stream_with_nonce_test, CHUNK_SIZE,
+};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Cursor;
@@ -64,6 +70,25 @@ const DEK_STREAM_MULTI: [u8; 32] = [
 
 // V1.1 streaming base nonces (one per vector, fixed to keep regeneration
 // byte-for-byte stable).
+// V2 stream vectors: own keys and nonces, so no V2 vector shares a
+// (key, nonce) pair with a V1.1 one.
+const DEK_V2_EMPTY: [u8; 32] = [0xD0; 32];
+const DEK_V2_SINGLE: [u8; 32] = [
+    0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE0,
+    0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF, 0xF0,
+];
+const DEK_V2_MULTI: [u8; 32] = [
+    0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF, 0x00,
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+];
+const V2_NONCE_EMPTY: [u8; 12] = [0x20; 12];
+const V2_NONCE_SINGLE: [u8; 12] = [
+    0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
+];
+const V2_NONCE_MULTI: [u8; 12] = [
+    0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C,
+];
+
 const STREAM_NONCE_SINGLE: [u8; 12] = [
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
 ];
@@ -113,6 +138,10 @@ fn compat_dir() -> PathBuf {
 
 fn compat_v1_1_stream_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/compat/v1_1/stream")
+}
+
+fn compat_v2_stream_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/compat/v2/stream")
 }
 
 /// Generate a repeating-pattern plaintext of the given size.
@@ -214,29 +243,35 @@ fn generate_vector(
     }
 }
 
-/// Produces a single V1.1 streaming vector on disk and returns its summary.
-/// Writes `plain.bin`, `encrypted.enc`, and `metadata.json` under
-/// `<stream-dir>/<id>/`. The encrypted output is produced with a fixed
-/// base nonce so re-runs are byte-for-byte reproducible.
+/// Produces a single streaming vector (format `version` 1 = V1.1, 2 = V2)
+/// on disk and returns its summary. Writes `plain.bin`, `encrypted.enc`,
+/// and `metadata.json` under `<base>/<id>/`. The encrypted output is
+/// produced with a fixed base nonce so re-runs are byte-for-byte
+/// reproducible.
 fn generate_stream_vector(
+    base: &Path,
+    version: u16,
     id: &str,
     dek_bytes: &[u8; 32],
     base_nonce: [u8; 12],
     plaintext: &[u8],
     mime_type: &str,
 ) -> StreamVectorResult {
-    let dir = compat_v1_1_stream_dir().join(id);
+    let dir = base.join(id);
     fs::create_dir_all(&dir).unwrap();
 
     fs::write(dir.join("plain.bin"), plaintext).unwrap();
 
-    // Build a temporary Dek; encrypt_stream_with_nonce_test forces the base
+    // Build a temporary Dek; encrypt_stream_v1_1_with_nonce_test forces the base
     // nonce so successive runs against the same inputs emit identical bytes.
     let dek = Dek::new(*dek_bytes);
     let mut encrypted = Vec::new();
-    let stream_meta =
-        encrypt_stream_with_nonce_test(Cursor::new(plaintext), &mut encrypted, &dek, base_nonce)
-            .unwrap();
+    let write = match version {
+        1 => encrypt_stream_v1_1_with_nonce_test::<Cursor<&[u8]>, &mut Vec<u8>>,
+        2 => encrypt_stream_with_nonce_test::<Cursor<&[u8]>, &mut Vec<u8>>,
+        other => panic!("no stream writer for version {other}"),
+    };
+    let stream_meta = write(Cursor::new(plaintext), &mut encrypted, &dek, base_nonce).unwrap();
     fs::write(dir.join("encrypted.enc"), &encrypted).unwrap();
 
     let plain_sha = sha256_hex(plaintext);
@@ -249,12 +284,16 @@ fn generate_stream_vector(
         "contentHash": plain_sha,
         "chunks": stream_meta.chunks,
         "headerParsed": {
-            "version": 1,
+            "version": version,
             "algorithm": "AES-256-GCM",
             "algorithmId": "0x01",
             "baseNonce": hex(&base_nonce),
             "flags": "0x0001",
-            "flagsMeaning": "FLAG_STREAM_FINAL_CHUNK set; last chunk's AAD carries the terminal marker",
+            "flagsMeaning": if version == 2 {
+                "FLAG_STREAM_FINAL_CHUNK set; every chunk's AAD is header || BE32(index | final marker)"
+            } else {
+                "FLAG_STREAM_FINAL_CHUNK set; last chunk's AAD carries the terminal marker"
+            },
             "headerLength": 25
         }
     });
@@ -424,6 +463,8 @@ fn generate_compat_pack_v1() {
         );
 
         let single = generate_stream_vector(
+            &stream_base,
+            1,
             "stream_single_chunk",
             &DEK_STREAM_SINGLE,
             STREAM_NONCE_SINGLE,
@@ -436,6 +477,8 @@ fn generate_compat_pack_v1() {
         // round number) is intentional — it makes the final chunk visibly
         // shorter in hex dumps so reviewers can eyeball the boundary.
         let multi = generate_stream_vector(
+            &stream_base,
+            1,
             "stream_multi_chunk",
             &DEK_STREAM_MULTI,
             STREAM_NONCE_MULTI,
@@ -489,6 +532,92 @@ fn generate_compat_pack_v1() {
         .unwrap();
 
         eprintln!("V1.1 stream compat pack generated successfully.");
+    }
+
+    // ── V2 streaming compat pack ───────────────────────────────────
+    //
+    // Three deterministic V2 vectors in testdata/compat/v2/stream/: empty
+    // plaintext (one empty final chunk), single chunk, and multi chunk
+    // (two full chunks + a partial one). They freeze the V2 layout: version
+    // 2, FLAG_STREAM_FINAL_CHUNK, chunk AAD = header || BE32(index | marker).
+    {
+        let v2_base = compat_v2_stream_dir();
+        fs::create_dir_all(&v2_base).unwrap();
+        eprintln!("Generating V2 stream compat pack in {}", v2_base.display());
+
+        let v2_vectors = [
+            generate_stream_vector(
+                &v2_base,
+                2,
+                "stream_empty",
+                &DEK_V2_EMPTY,
+                V2_NONCE_EMPTY,
+                &[],
+                "application/octet-stream",
+            ),
+            generate_stream_vector(
+                &v2_base,
+                2,
+                "stream_single_chunk",
+                &DEK_V2_SINGLE,
+                V2_NONCE_SINGLE,
+                &make_plaintext(2048, 0xC0),
+                "application/octet-stream",
+            ),
+            generate_stream_vector(
+                &v2_base,
+                2,
+                "stream_multi_chunk",
+                &DEK_V2_MULTI,
+                V2_NONCE_MULTI,
+                &make_plaintext(CHUNK_SIZE * 2 + 777, 0xD0),
+                "application/octet-stream",
+            ),
+        ];
+
+        let v2_test_deks = serde_json::json!({
+            "_WARNING": "NEVER USE THESE KEYS IN PRODUCTION. Test-only keys for V2 stream compat vectors.",
+            "dek_stream_empty": hex(&DEK_V2_EMPTY),
+            "dek_stream_single_chunk": hex(&DEK_V2_SINGLE),
+            "dek_stream_multi_chunk": hex(&DEK_V2_MULTI)
+        });
+        fs::write(
+            v2_base.join("test_deks.json"),
+            serde_json::to_string_pretty(&v2_test_deks).unwrap(),
+        )
+        .unwrap();
+
+        // produced_by / produced_at are frozen at the version that first
+        // generated the V2 pack, for the same reason as the V1.1 pack.
+        let v2_vectors_json = serde_json::json!({
+            "version": "2.0",
+            "format": "streaming",
+            "produced_by": "secure-core v1.0.0 / Rust",
+            "produced_at": "2026-11-22",
+            "vectors": v2_vectors.iter().map(|v| serde_json::json!({
+                "id": v.id,
+                "dek_ref": v.dek_ref,
+                "plain_sha256": v.plain_sha256,
+                "cipher_sha256": v.cipher_sha256,
+                "plaintext_size": v.plaintext_size,
+                "ciphertext_size": v.ciphertext_size,
+                "chunks": v.chunks,
+                "mime_type": v.mime_type,
+                "header": {
+                    "version": 2,
+                    "algo": "AES-256-GCM",
+                    "base_nonce": v.base_nonce_hex,
+                    "flags": "0x0001"
+                }
+            })).collect::<Vec<_>>()
+        });
+        fs::write(
+            v2_base.join("vectors.json"),
+            serde_json::to_string_pretty(&v2_vectors_json).unwrap(),
+        )
+        .unwrap();
+
+        eprintln!("V2 stream compat pack generated successfully.");
     }
 
     // ── testdata/v1_reference.enc ──────────────────────────────────

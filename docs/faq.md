@@ -29,7 +29,7 @@ Cette garantie est documentee dans le [contrat plateforme](platform-contract.md)
 | Mode | Limite |
 |---|---|
 | In-memory (`encrypt_bytes`) | 4 GB (64-bit) / 2 GB (32-bit) |
-| Streaming (`encrypt_stream`) | ~256 TB (2^32 chunks x 64 KB) |
+| Streaming (`encrypt_stream`) | ~128 TiB ((2^31 - 1) chunks x 64 KiB) |
 
 Le format `.enc` V1 n'impose pas de limite theorique sur la taille du fichier — la contrainte vient du nombre maximal de chunks (u32) et de la memoire disponible pour le mode in-memory.
 
@@ -39,10 +39,10 @@ En pratique, pour des fichiers mobiles (photos, documents), ces limites sont lar
 
 ### Que se passe-t-il si le fichier est corrompu ?
 
-Le dechiffrement echoue avec une erreur `SecureCoreError::CryptoError` ou `InvalidFormat`. AES-256-GCM est un schema AEAD : toute modification du ciphertext ou du tag d'authentification est detectee. Le header est authentifie en mode in-memory ; en streaming, ses champs critiques sont proteges indirectement (le nonce derive les nonces des chunks) et un stream sans `FLAG_STREAM_FINAL_CHUNK` est rejete.
+Le dechiffrement echoue avec une erreur `SecureCoreError::CryptoError` ou `InvalidFormat`. AES-256-GCM est un schema AEAD : toute modification du ciphertext ou du tag d'authentification est detectee. Le header est authentifie en mode in-memory et dans les streams V2 (ecrits depuis 1.0.0, header dans l'AAD de chaque chunk). Dans les anciens streams V1.1, ses champs critiques sont proteges indirectement (le nonce derive les nonces des chunks) et le lecteur est strict (flag de fin exige, flags inconnus rejetes).
 
 Cas couverts :
-- **Bit flip** dans le ciphertext ou le header → erreur d'authentification GCM (in-memory), ou rejet du header (streaming)
+- **Bit flip** dans le ciphertext ou le header → erreur d'authentification GCM (in-memory, stream V2), ou rejet du header (stream V1.1)
 - **Troncature** du fichier → erreur de format ou chunk incomplet, y compris si le flag de fin de stream a ete efface
 - **Reordonnancement de chunks** (streaming) → erreur d'authentification (le chunk index fait partie de l'AAD)
 - **Mauvaise cle** → erreur d'authentification

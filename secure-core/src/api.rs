@@ -68,7 +68,7 @@ pub fn encrypt_file(
     })
 }
 
-/// Decrypts a V1.1 file at `input_path` and writes the plaintext to `output_path`.
+/// Decrypts a V2 or V1.1 stream file at `input_path` and writes the plaintext to `output_path`.
 ///
 /// Legacy V1.0 streams (no final-chunk flag) are rejected; see
 /// [`decrypt_stream`].

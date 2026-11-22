@@ -53,12 +53,13 @@ pub struct StreamMetadata {
     pub total_ciphertext_bytes: u64,
 }
 
-/// Encrypts a stream in 64 KB chunks with per-chunk nonces.
+/// Encrypts a stream in 64 KB chunks with per-chunk nonces. Writes the V2
+/// format (header authenticated in every chunk) since 1.0.0.
 pub fn encrypt_stream<R: Read, W: Write>(
     input: R, output: W, dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError>;
 
-/// Decrypts a chunked stream.
+/// Decrypts a chunked stream: V2, or V1.1 written by 0.3.0 – 0.6.x.
 pub fn decrypt_stream<R: Read, W: Write>(
     input: R, output: W, dek: &Dek,
 ) -> Result<StreamMetadata, SecureCoreError>;
@@ -186,7 +187,8 @@ The KDF parameters used for unwrapping are the constants of the declared `schema
 
 ```rust
 pub const MAGIC: [u8; 4];           // "SENC"
-pub const FORMAT_VERSION_V1: u16;   // 1
+pub const FORMAT_VERSION_V1: u16;   // 1: in-memory, V1.1 streams (read only)
+pub const FORMAT_VERSION_V2: u16;   // 2: V2 streams (1.0.0+)
 
 pub enum AlgorithmId { Aes256Gcm = 0x01 }
 
@@ -200,6 +202,7 @@ pub struct EncHeader {
 
 impl EncHeader {
     pub fn new_v1(nonce: [u8; 12]) -> Self;
+    pub fn new_stream_v2(nonce: [u8; 12]) -> Self; // version 2 + FLAG_STREAM_FINAL_CHUNK
     pub fn to_bytes(&self) -> Vec<u8>;
     pub fn from_bytes(data: &[u8]) -> Result<Self, SecureCoreError>;
 }
@@ -247,7 +250,7 @@ All functions use `extern "C"` ABI. The caller **must** free results via `secure
 | `secure_core_encrypt_bytes(plaintext, len, dek, dek_len) -> FfiResult` | In-memory encrypt |
 | `secure_core_decrypt_bytes(blob, len, dek, dek_len) -> FfiResult` | In-memory decrypt |
 | `secure_core_encrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming encrypt |
-| `secure_core_decrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming decrypt (V1.1 streams) |
+| `secure_core_decrypt_file(input_path, output_path, dek, dek_len) -> FfiResult` | Streaming decrypt (V2 and V1.1 streams) |
 | `secure_core_wrap_dek_with_passphrase(dek, dek_len, passphrase) -> FfiResult` | Recovery bundle (JSON) from a DEK, blocking (Argon2id) |
 | `secure_core_unwrap_dek_with_passphrase(json, json_len, passphrase) -> FfiResult` | DEK (32 bytes) from a recovery bundle, blocking (Argon2id) |
 | `secure_core_free_buffer(FfiBuffer)` | Free a Rust-allocated buffer |
@@ -330,8 +333,9 @@ The encrypted output uses a custom binary format:
 ```
 
 - In-memory: the header is authenticated as AAD (tampering detected)
-- Streaming: the header is not in the chunk AAD; streams must carry `FLAG_STREAM_FINAL_CHUNK` (others, including legacy pre-0.3.0 streams, are rejected)
+- Streaming V2 (written since 1.0.0, version 2): the full header is in every chunk's AAD, so header tampering and downgrades fail authentication; see [docs/enc-format-v2.md](enc-format-v2.md)
+- Streaming V1.1 (read only): the header is not in the chunk AAD; streams must carry exactly `FLAG_STREAM_FINAL_CHUNK` (others, including legacy pre-0.3.0 streams, are rejected)
 - AES-256-GCM with 128-bit auth tags
 - Streaming: 64 KB chunks, per-chunk nonces derived via XOR
 
-Full specification: [docs/enc-format-v1.md](enc-format-v1.md)
+Full specifications: [docs/enc-format-v1.md](enc-format-v1.md) (in-memory, streaming V1.1) and [docs/enc-format-v2.md](enc-format-v2.md) (streaming V2).

@@ -42,7 +42,7 @@ Le stockage (SQLite, metadata JSON, keystore OS) est **hors périmètre** : c'es
 secure-core/src/
 ├── crypto.rs        AES-256-GCM in-memory, type Dek (ZeroizeOnDrop)
 ├── streaming.rs     Chunked 64 KiB, nonces dérivés par XOR(base, chunk_idx)
-├── format.rs        Header .enc V1 (25 B : SENC | v | algo | nonce | flags | len)
+├── format.rs        Header .enc V1/V2 (25 B : SENC | v | algo | nonce | flags | len)
 ├── api.rs           Wrappers fichiers (encrypt_file / decrypt_file)
 ├── metadata.rs      DocumentMetadata, WrapsEnvelope, DeviceWrap, FolderMetadata
 ├── recovery.rs      Wrap/unwrap DEK par passphrase (Argon2id 64 MiB, t=3, p=4)
@@ -67,7 +67,7 @@ secure-core/src/
 - Framework : tests Rust natifs (`#[cfg(test)]` inline + `tests/` intégration).
 - **Pas de mocks** — tout est testé réel, en mémoire (`Cursor`) ou sur disque (`tempfile`). Cohérent avec les conventions globales (pas de `mockall`, pas d'auto-mock).
 - **TDD strict** : écrire le test avant l'implémentation.
-- **Golden files** : `testdata/compat/v1/` versionnés. Tout diff binaire non-intentionnel fait échouer le CI (`compat-tests` job).
+- **Golden files** : `testdata/compat/v1/` (in-memory), `v1_1/stream/` et `v2/stream/` versionnés. Tout diff binaire non-intentionnel fait échouer le CI (`compat-tests` job).
 - **FFI harness** : binaire `ffi-harness` rejoué en CI pour vérifier la surface C ABI.
 - **Couverture** : `cargo llvm-cov --fail-under-lines 80`, exclut `jni_bridge.rs` et `logging.rs` (nécessitent JVM/env spécifique).
 - **Déterminisme** : les fonctions `*_with_nonce_test` (feature `_test-vectors`) permettent des sorties reproductibles pour les vectors.
@@ -117,7 +117,7 @@ cargo bench
 
 ## Invariants non-négociables
 
-1. **Format `.enc` V1 figé** — le header (25 B, magic `SENC`) et les vectors golden sont un contrat public. Toute modification binaire exige : bump de version, documentation de migration, nouveaux vectors. Jamais de patch silencieux.
+1. **Formats `.enc` figés** — V1 (in-memory), V1.1 (stream, lecture seule) et V2 (stream, écrit depuis 1.0.0, header dans l'AAD de chaque chunk) : le header (25 B, magic `SENC`) et les vectors golden sont un contrat public. Toute modification binaire exige : bump de version, documentation de migration, nouveaux vectors. Jamais de patch silencieux.
 2. **ABI FFI figée** — les 9 symboles `secure_core_*` et les 7 symboles JNI `Java_com_securecore_SecureCoreLib_*` sont consommés par les apps mobiles. Changer une signature = nouvelle version majeure.
 3. **`include/secure_core.h`** DOIT rester synchronisé avec `ffi/functions.rs`. Le script `check-ffi-header.sh` le vérifie en CI.
 4. **`Dek`** ne doit jamais être `Clone`, jamais `Debug` non-redacté, jamais sérialisé.
@@ -139,12 +139,13 @@ cargo bench
 
 - `docs/api-overview.md` — API Rust + FFI
 - `docs/ffi-abi-v1.md` — promesses de stabilité ABI
-- `docs/enc-format-v1.md` — spec binaire `.enc`
+- `docs/enc-format-v1.md` — spec binaire `.enc` (in-memory V1, streaming V1.1)
+- `docs/enc-format-v2.md` — spec streaming V2
 - `docs/recovery-format-v1.md` — format recovery V1
 - `docs/wraps-schema-v1.md` — schéma wrapped-DEK
 - `docs/platform-contract.md` — frontière core / platform mobile
 - `docs/threat-model.md` + `docs/security-considerations.md` — modèle de menace
-- `docs/decisions/ADR-001-algo-choice.md`, `ADR-002-streaming-strategy.md`
+- `docs/decisions/ADR-001-algo-choice.md`, `ADR-002-streaming-strategy.md`, `ADR-003-stream-header-in-aad.md`
 
 ---
 

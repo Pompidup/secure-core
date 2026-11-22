@@ -13,7 +13,7 @@ Le core Rust `secure-core` est une bibliothèque de chiffrement pure : **bytes i
 | Corruption partielle | Perte ou altération de blocs suite à une défaillance stockage. | L'authentification GCM couvre l'intégralité du ciphertext. Toute corruption est détectée. |
 | Réutilisation de nonce | Deux chiffrements avec le même nonce compromettent la confidentialité. | Génération de nonce aléatoire (96 bits) via CSPRNG pour chaque opération. |
 | Downgrade algorithmique | Un attaquant tente de forcer l'utilisation d'un algorithme faible. | Un seul algorithme supporté, identifié dans le header. Rejet de tout algorithme inconnu. |
-| Downgrade de format (streaming) | Un attaquant efface `FLAG_STREAM_FINAL_CHUNK` (header non authentifié en streaming) pour faire lire un stream V1.1 tronqué comme un stream legacy V1.0. | Depuis 0.5.0, les lecteurs rejettent tout stream sans le flag. Depuis 1.0.0, il n'existe plus aucun lecteur legacy (API de migration retirée). Prévu en V2 : header dans l'AAD de chaque chunk. |
+| Downgrade de format (streaming) | Un attaquant modifie le header d'un stream (flag de fin, version, flags) pour le faire lire selon des règles plus faibles : stream tronqué lu comme legacy V1.0, ou stream V2 lu comme V1.1. | Depuis 0.5.0, les lecteurs rejettent tout stream sans le flag ; depuis 1.0.0, il n'existe plus de lecteur legacy. Depuis 1.0.0, les streams sont écrits en **V2** : le header complet est dans l'AAD de chaque chunk, toute modification du header (y compris version 2 → 1) fait échouer GCM. Les streams V1.1 existants restent protégés par les contrôles stricts du lecteur. |
 
 ## Bundle de recovery (export / import par passphrase)
 

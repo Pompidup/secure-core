@@ -1,5 +1,7 @@
 # Format de fichier chiffré `.enc` — Version 1
 
+> **Depuis secure-core 1.0.0**, les streams sont écrits au format **V2** ([`enc-format-v2.md`](enc-format-v2.md)), qui authentifie le header dans chaque chunk. Ce document reste la référence du format in-memory (toujours V1) et du streaming V1.1, que la 1.x continue de **lire**.
+
 ## Vue d'ensemble
 
 Le format `.enc` V1 est un format binaire simple et non-streamable conçu pour le chiffrement de fichiers individuels. Il encapsule un payload chiffré avec AES-256-GCM, précédé d'un header fixe.
@@ -63,7 +65,7 @@ Les deux chemins d'API ont des bornes différentes — by design, pas un oubli :
 Champ `u16` little-endian. Le traitement d'un bit inconnu dépend du mode, car seul l'in-memory authentifie le header :
 
 - **In-memory** : le header est l'AAD GCM, un bit inconnu vient donc forcément d'un écrivain légitime. Le lecteur **DOIT** l'ignorer (forward compatibility).
-- **Streaming** : le header n'est pas authentifié, un bit inconnu peut venir d'une corruption ou d'une falsification. Depuis 0.6.0, le lecteur **DOIT** rejeter le stream (`InvalidFormat`) avant d'écrire du clair. Tout nouveau flag de streaming exige donc une nouvelle version du lecteur.
+- **Streaming V1.1** : le header n'est pas authentifié, un bit inconnu peut venir d'une corruption ou d'une falsification. Depuis 0.6.0, le lecteur **DOIT** rejeter le stream (`InvalidFormat`) avant d'écrire du clair. Tout nouveau flag de streaming exige donc une nouvelle version du lecteur (même règle en V2).
 
 | Bit    | Nom                         | Sémantique                                                                 |
 | ------ | --------------------------- | -------------------------------------------------------------------------- |
@@ -72,11 +74,11 @@ Champ `u16` little-endian. Le traitement d'un bit inconnu dépend du mode, car s
 
 #### Streaming V1.1 — détection de troncature
 
-Les blobs produits par `encrypt_stream` portent `flags & FLAG_STREAM_FINAL_CHUNK` à `1`. Dans ce mode :
+Les streams V1.1 (produits par `encrypt_stream` de 0.3.0 à 0.6.x) portent `flags & FLAG_STREAM_FINAL_CHUNK` à `1`. Dans ce mode :
 
 - L'AAD d'un chunk non-final est `chunk_index.to_be_bytes()` (4 octets, bit haut = 0).
 - L'AAD du **dernier** chunk est `(chunk_index | 0x80000000).to_be_bytes()` (bit haut = 1).
-- Au décryptage, le dernier chunk doit valider avec le marqueur ; l'absence est rejetée → `InvalidFormat("V1.1 stream is missing its final chunk")` ou `CryptoError(...)` selon l'endroit de la troncature.
+- Au décryptage, le dernier chunk doit valider avec le marqueur ; l'absence est rejetée → `InvalidFormat("stream is missing its final chunk")` ou `CryptoError(...)` selon l'endroit de la troncature.
 - Conséquence : `chunk_index` est borné à `0x7FFF_FFFF` (2 147 483 647 chunks × 64 KiB ≈ 128 TiB par stream).
 
 **Depuis 0.5.0, un stream sans `FLAG_STREAM_FINAL_CHUNK` est rejeté par défaut** (`decrypt_stream` / `decrypt_file` → `InvalidFormat`, avant toute écriture de clair). En streaming, le header n'entre pas dans l'AAD des chunks, et un chunk non-final V1.1 a exactement l'AAD d'un chunk V1.0. Honorer un flag absent permettrait donc d'effacer le flag d'un stream V1.1 tronqué et de le faire accepter comme un stream legacy.
@@ -87,11 +89,11 @@ Les streams produits avant V1.1 (`flags == 0`, secure-core < 0.3.0, AAD = `chunk
 
 - Le tag GCM de 16 bytes est toujours placé **après** le payload.
 - **In-memory** (`encrypt_bytes`) : le header complet (magic + version + algorithm_id + nonce + flags + header_length) est l'**Additional Authenticated Data (AAD)** du calcul GCM. Toute modification du header est détectée.
-- **Streaming** : le header **n'est pas** dans l'AAD. Chaque chunk authentifie seulement son index (+ le marqueur de fin). Le nonce reste protégé de fait, car il dérive les nonces des chunks, mais `version` et `flags` ne sont pas authentifiés. D'où le rejet par défaut des streams sans `FLAG_STREAM_FINAL_CHUNK` ci-dessus. Une future V2 inclura le header dans l'AAD de chaque chunk.
+- **Streaming** : le header **n'est pas** dans l'AAD. Chaque chunk authentifie seulement son index (+ le marqueur de fin). Le nonce reste protégé de fait, car il dérive les nonces des chunks, mais `version` et `flags` ne sont pas authentifiés. D'où le rejet par défaut des streams sans `FLAG_STREAM_FINAL_CHUNK` ci-dessus. La V2 (1.0.0) inclut le header dans l'AAD de chaque chunk.
 
 ## Gestion des versions
 
-- Si `version ≠ 1` (y compris `0`, jamais produit), le lecteur **DOIT** rejeter le fichier avec l'erreur `UnsupportedVersion`. Un lecteur V2 acceptera explicitement `1` et `2`.
+- Un lecteur 1.x accepte `version = 1` et `version = 2` (streams V2 uniquement) ; toute autre valeur, y compris `0` (jamais produit), **DOIT** être rejetée avec `UnsupportedVersion { max_supported: 2 }`. `decrypt_bytes` (in-memory) rejette `version = 2` avec `InvalidFormat`.
 - Si `magic ≠ "SENC"`, le lecteur **DOIT** rejeter le fichier avec l'erreur `InvalidFormat`.
 - Si `algorithm_id` est inconnu, le lecteur **DOIT** rejeter le fichier avec l'erreur `InvalidFormat`.
 

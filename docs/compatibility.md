@@ -2,47 +2,41 @@
 
 ## Forward Compatibility Promise
 
-**Tout fichier `.enc` V1 ou V1.1 restera lisible par toutes les versions futures de secure-core.**
+**Tout fichier `.enc` V1 (in-memory), V1.1 (stream) ou V2 (stream) restera lisible par toutes les versions futures 1.x de secure-core.**
 
 Ce contrat est garanti par :
 
-1. Le champ `version` dans le header (octets 4-5) identifie la version majeure du format.
-2. Le champ `flags` (octets 19-20) signale les extensions mineures additives (ex. `FLAG_STREAM_FINAL_CHUNK` pour V1.1). En in-memory (header authentifié), un lecteur ignore les bits qu'il ne connaît pas. En streaming (header non authentifié), il les rejette depuis 0.6.0 et exige `FLAG_STREAM_FINAL_CHUNK` depuis 0.5.0.
-3. Les futures versions du core devront toujours supporter le parsing et le déchiffrement des headers V1.x.
+1. Le champ `version` dans le header (octets 4-5) identifie la version du format : `1` (in-memory, et streams V1.1 en lecture seule) ou `2` (streams V2, écrits depuis 1.0.0).
+2. Le champ `flags` (octets 19-20) signale les extensions mineures (ex. `FLAG_STREAM_FINAL_CHUNK`). En in-memory (header authentifié), un lecteur ignore les bits qu'il ne connaît pas. En streaming, il les rejette (V1.1 et V2) et exige `FLAG_STREAM_FINAL_CHUNK`.
+3. Les futures versions 1.x du core devront toujours supporter le parsing et le déchiffrement des headers V1, V1.1 et V2.
 4. Le blob de référence `testdata/v1_reference.enc` est vérifié dans les tests d'intégration pour détecter toute régression.
-5. Le pack compat V1.1 sous `testdata/compat/v1_1/stream/` fige le layout streaming (flag + AAD + chunk framing) via 5 tests de régression qui échouent au moindre diff binaire.
+5. Les packs compat `testdata/compat/v1/` (in-memory), `testdata/compat/v1_1/stream/` et `testdata/compat/v2/stream/` figent les layouts : leurs tests échouent au moindre diff binaire, et la CI vérifie que leur régénération est identique octet pour octet.
 
-## Strategie de migration V2
+## Format V2 (secure-core 1.0.0)
 
-### Principe : extension sans rupture
+Spécification : [`enc-format-v2.md`](enc-format-v2.md), décision : [ADR-003](decisions/ADR-003-stream-header-in-aad.md).
 
-Le format V2 sera retro-compatible avec V1 :
+- Ne concerne que le **streaming**. Le in-memory reste V1 (son header est déjà authentifié).
+- Header identique à V1 (25 octets, magic `SENC`), avec `version = 2`.
+- **Le header complet entre dans l'AAD de chaque chunk** : aucun octet du header n'est modifiable, un downgrade vers V1.1 échoue à l'authentification.
+- Découpage, framing, dérivation des nonces et marqueur de fin inchangés.
 
-- Le magic `SENC` reste identique.
-- Le champ `version` passera a `2`.
-- Le header V2 utilisera des **champs TLV** (Type-Length-Value) apres les 25 octets du header V1 de base :
-
-```
-[V1 header 25B][TLV extension 1][TLV extension 2]...
-```
-
-- Le champ `header_length` (octets 21-24) indiquera la taille totale du header, permettant aux parsers V1 de sauter les extensions inconnues.
-- Le payload (ciphertext) reste au meme format.
+La stratégie envisagée auparavant (extensions TLV après le header de base) n'a pas été retenue : elle ne réglait pas l'authentification du header. Avec la V2, une extension future comptée dans `header_length` serait authentifiée par construction.
 
 ### Backward compatibility
 
-| Lecteur \ Fichier | V1 | V2 |
-|---|---|---|
-| Core V1 | OK | Erreur `UnsupportedVersion` (propre, pas de crash) |
-| Core V2+ | OK | OK |
+| Lecteur \ Fichier | V1 in-memory | V1.1 stream | V2 stream |
+|---|---|---|---|
+| Core 0.3 – 0.6 | OK | OK | Erreur `UnsupportedVersion { found: 2, max_supported: 1 }` (propre, pas de crash) |
+| Core 1.x | OK | OK | OK |
 
-Un core V1 rejettera proprement un fichier V2 via `SecureCoreError::UnsupportedVersion { found: 2, max_supported: 1 }`.
+Aucune migration n'est requise : les streams V1.1 existants restent lisibles. En revanche, un fichier ou une sauvegarde écrits par une app en 1.x ne sont pas lisibles par une app restée en 0.x.
 
-## Hooks reserves pour V2
+## Hooks réservés pour l'évolution des métadonnées
 
-Les champs suivants sont reserves dans les structures V1 mais non utilises :
+Les champs suivants sont réservés dans les structures de métadonnées mais non utilisés. Leur évolution est indépendante du format `.enc` V2.
 
-| Champ | Emplacement | Usage prevu en V2 |
+| Champ | Emplacement | Usage prevu |
 |---|---|---|
 | `recovery_wrap` | `WrappedDek` | DEK chiffree avec une cle de recovery (account-level) pour permettre le transfert entre devices |
 | `content_hash` | `DocumentMetadata` | SHA-256 du plaintext pour verification d'integrite cote plateforme |
@@ -62,13 +56,13 @@ En V1, `content_hash` est optionnel et non calcule par le core. En V2, le core p
 
 ### flags
 
-Champ `u16` little-endian. Authentifié (AAD) en mode in-memory uniquement ; en streaming, le header n'est pas dans l'AAD des chunks (voir `enc-format-v1.md`, section Auth tag). Un nouveau flag de streaming ne peut donc pas servir de garantie de sécurité tant que le header n'est pas authentifié (V2).
+Champ `u16` little-endian. Authentifié (AAD) en in-memory et en stream V2 ; non authentifié en stream V1.1 (voir `enc-format-v1.md`, section Auth tag, et `enc-format-v2.md`).
 
 | Bit | Nom / usage | Statut |
 |---|---|---|
-| 0 | `FLAG_STREAM_FINAL_CHUNK` — V1.1 streaming : AAD du dernier chunk marquée pour détection de troncature | **Actif** (depuis v0.3.0) ; **obligatoire** en lecture streaming depuis v0.5.0 |
+| 0 | `FLAG_STREAM_FINAL_CHUNK` — streaming : AAD du dernier chunk marquée pour détection de troncature | **Actif** (depuis v0.3.0) ; **obligatoire** en lecture streaming (V1.1 depuis v0.5.0, V2) |
 | 1 | Key rotation marker | Réservé |
 | 2 | Compression (zstd avant chiffrement) | Réservé |
 | 3-15 | Divers | Réservés, doivent être `0` |
 
-En in-memory, tout nouveau bit restera additif et n'invalidera pas les lecteurs V1.x (via `header_length` pour les extensions longues, ou via une sémantique "safe to ignore" pour les flags purement informatifs). En streaming, les lecteurs V1.x existants refuseront tout bit inconnu : un nouveau flag de streaming passera plutôt par la V2, dont le header sera authentifié dans chaque chunk.
+En in-memory, tout nouveau bit restera additif et n'invalidera pas les lecteurs V1.x (via `header_length` pour les extensions longues, ou via une sémantique "safe to ignore" pour les flags purement informatifs). En streaming, les lecteurs existants refusent tout bit inconnu : un nouveau flag de streaming nécessitera une nouvelle version du lecteur. Son authentification est en revanche acquise en V2.
