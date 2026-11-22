@@ -152,7 +152,7 @@ pub unsafe extern "C" fn secure_core_encrypt_file(
     })
 }
 
-/// Decrypts a V1.1 file using chunked streaming.
+/// Decrypts a V2 or V1.1 file using chunked streaming.
 ///
 /// Legacy V1.0 streams (no final-chunk flag, secure-core < 0.3.0) are
 /// rejected with `FFI_ERROR_INVALID_FORMAT`.

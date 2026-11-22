@@ -135,6 +135,9 @@ SecureCoreResult secure_core_decrypt_bytes(
 /*
  * Encrypts a file using chunked streaming (64 KB chunks).
  *
+ * Since 1.0.0 the output is a V2 stream (header authenticated in every
+ * chunk), which secure-core 0.x cannot read (UNSUPPORTED_VERSION).
+ *
  * Parameters:
  *   input_path_ptr  — null-terminated UTF-8 path to the input file
  *   output_path_ptr — null-terminated UTF-8 path to the output .enc file
@@ -159,7 +162,7 @@ SecureCoreResult secure_core_encrypt_file(
 );
 
 /*
- * Decrypts a V1.1 .enc file using chunked streaming.
+ * Decrypts a V2 (or V1.1) .enc file using chunked streaming.
  *
  * Streams without FLAG_STREAM_FINAL_CHUNK (legacy V1.0, or a header whose
  * flag was cleared) are rejected with SECURE_CORE_ERROR_INVALID_FORMAT before

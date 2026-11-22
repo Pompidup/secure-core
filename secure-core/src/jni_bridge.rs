@@ -455,7 +455,7 @@ pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeEncryptFile<'a>(
     })
 }
 
-/// Decrypts a V1.1 file. Legacy V1.0 streams are rejected (`INVALID_FORMAT`).
+/// Decrypts a V2 or V1.1 file. Legacy V1.0 streams are rejected (`INVALID_FORMAT`).
 #[no_mangle]
 pub extern "system" fn Java_com_securecore_SecureCoreLib_nativeDecryptFile<'a>(
     env: JNIEnv<'a>,
