@@ -163,7 +163,8 @@ SecureCoreResult secure_core_encrypt_file(
  *
  * Streams without FLAG_STREAM_FINAL_CHUNK (legacy V1.0, or a header whose
  * flag was cleared) are rejected with SECURE_CORE_ERROR_INVALID_FORMAT before
- * any plaintext is written. See secure_core_decrypt_file_allow_legacy.
+ * any plaintext is written. Legacy files (secure-core < 0.3.0) must be
+ * re-encrypted with secure-core 0.5.x / 0.6.x before upgrading to 1.0.
  *
  * Parameters:
  *   input_path_ptr  — null-terminated UTF-8 path to the encrypted .enc file
@@ -182,25 +183,6 @@ SecureCoreResult secure_core_encrypt_file(
  * Thread-safety: Safe to call from any thread. File I/O may block.
  */
 SecureCoreResult secure_core_decrypt_file(
-    const char    *input_path_ptr,
-    const char    *output_path_ptr,
-    const uint8_t *dek_ptr,
-    size_t         dek_len
-);
-
-/*
- * MIGRATION ONLY. Decrypts a V1.1 or a legacy V1.0 .enc file.
- *
- * WARNING: truncation of legacy input is NOT detected. Call it once to
- * decrypt files written before secure-core 0.3.0, then re-encrypt them with
- * secure_core_encrypt_file. Never use it for regular document opening.
- *
- * Parameters, return value, ownership and thread-safety: identical to
- * secure_core_decrypt_file.
- *
- * Since: 0.5.0 (additive).
- */
-SecureCoreResult secure_core_decrypt_file_allow_legacy(
     const char    *input_path_ptr,
     const char    *output_path_ptr,
     const uint8_t *dek_ptr,

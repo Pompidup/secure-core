@@ -205,69 +205,6 @@ fn test_stream_truncation_of_last_chunk_is_detected() {
     );
 }
 
-#[cfg(feature = "_test-vectors")]
-#[test]
-fn test_legacy_stream_without_flag_decrypts_with_allow_legacy() {
-    use std::io::Cursor;
-
-    let dek = Dek::new(TEST_KEY);
-    let plaintext = random_bytes(CHUNK_SIZE * 2 + 123);
-
-    // Produce a blob with the pre-V1.1 layout (flags=0, legacy AAD).
-    let mut encrypted = Vec::new();
-    secure_core::streaming::encrypt_stream_legacy_v1_test(
-        Cursor::new(&plaintext),
-        &mut encrypted,
-        &dek,
-    )
-    .unwrap();
-
-    let header = EncHeader::from_bytes(&encrypted).unwrap();
-    assert_eq!(header.flags & FLAG_STREAM_FINAL_CHUNK, 0);
-
-    let mut decrypted = Vec::new();
-    secure_core::streaming::decrypt_stream_allow_legacy(
-        Cursor::new(&encrypted),
-        &mut decrypted,
-        &dek,
-    )
-    .unwrap();
-    assert_eq!(decrypted, plaintext);
-}
-
-#[cfg(feature = "_test-vectors")]
-#[test]
-fn test_decrypt_file_allow_legacy_migrates_legacy_file() {
-    let dek = Dek::new(TEST_KEY);
-    let plaintext = random_bytes(CHUNK_SIZE * 2 + 9);
-    let mut legacy = Vec::new();
-    secure_core::streaming::encrypt_stream_legacy_v1_test(
-        std::io::Cursor::new(&plaintext),
-        &mut legacy,
-        &dek,
-    )
-    .unwrap();
-    let legacy_file = write_temp_file(&legacy);
-
-    // Default reader refuses it...
-    let out = NamedTempFile::new().unwrap();
-    let err = decrypt_file(legacy_file.path(), out.path(), &dek).unwrap_err();
-    assert!(
-        matches!(err, SecureCoreError::InvalidFormat(_)),
-        "got: {err:?}"
-    );
-
-    // ...the explicit migration path decrypts it, and re-encryption yields V1.1.
-    secure_core::api::decrypt_file_allow_legacy(legacy_file.path(), out.path(), &dek).unwrap();
-    assert_eq!(std::fs::read(out.path()).unwrap(), plaintext);
-
-    let migrated = NamedTempFile::new().unwrap();
-    encrypt_file(out.path(), migrated.path(), &dek).unwrap();
-    let roundtrip = NamedTempFile::new().unwrap();
-    decrypt_file(migrated.path(), roundtrip.path(), &dek).unwrap();
-    assert_eq!(std::fs::read(roundtrip.path()).unwrap(), plaintext);
-}
-
 #[test]
 fn test_stream_truncation_to_single_chunk_is_detected() {
     let dek = Dek::new(TEST_KEY);
@@ -376,68 +313,6 @@ fn test_decrypt_file_rejects_downgraded_stream_and_writes_no_plaintext() {
     assert_eq!(std::fs::metadata(decrypted_file.path()).unwrap().len(), 0);
 }
 
-#[test]
-fn test_allow_legacy_decrypts_v1_1_streams() {
-    let dek = Dek::new(TEST_KEY);
-    let plaintext = random_bytes(CHUNK_SIZE * 2 + 1);
-    let blob = encrypt_to_vec(&plaintext, &dek);
-
-    let mut out = Vec::new();
-    secure_core::streaming::decrypt_stream_allow_legacy(
-        std::io::Cursor::new(&blob),
-        &mut out,
-        &dek,
-    )
-    .unwrap();
-    assert_eq!(out, plaintext);
-}
-
-#[test]
-fn test_allow_legacy_still_detects_truncation_of_flagged_stream() {
-    let dek = Dek::new(TEST_KEY);
-    let mut blob = encrypt_to_vec(&random_bytes(CHUNK_SIZE * 3), &dek);
-    blob.truncate(last_chunk_offset(&blob));
-
-    let err = secure_core::streaming::decrypt_stream_allow_legacy(
-        std::io::Cursor::new(&blob),
-        &mut Vec::new(),
-        &dek,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            err,
-            SecureCoreError::InvalidFormat(_) | SecureCoreError::CryptoError(_)
-        ),
-        "got: {err:?}"
-    );
-}
-
-#[cfg(feature = "_test-vectors")]
-#[test]
-fn test_legacy_stream_without_flag_is_rejected_by_default() {
-    let dek = Dek::new(TEST_KEY);
-    let plaintext = random_bytes(CHUNK_SIZE + 5);
-    let mut legacy = Vec::new();
-    secure_core::streaming::encrypt_stream_legacy_v1_test(
-        std::io::Cursor::new(&plaintext),
-        &mut legacy,
-        &dek,
-    )
-    .unwrap();
-
-    let err = secure_core::streaming::decrypt_stream(
-        std::io::Cursor::new(&legacy),
-        &mut Vec::new(),
-        &dek,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(err, SecureCoreError::InvalidFormat(_)),
-        "got: {err:?}"
-    );
-}
-
 // ── Header version must be one this build knows ──────────────────────
 // No writer ever produced version 0. Accepting it widened the set of
 // malformed inputs, and in streaming the version byte is not authenticated.
@@ -496,21 +371,15 @@ fn test_stream_with_unknown_flag_bit_is_rejected() {
         let mut tampered = blob.clone();
         let flags = u16::from_le_bytes([tampered[19], tampered[20]]) | bit;
         tampered[19..21].copy_from_slice(&flags.to_le_bytes());
-        for allow_legacy in [false, true] {
-            let mut out = Vec::new();
-            let cursor = std::io::Cursor::new(&tampered);
-            let err = if allow_legacy {
-                secure_core::streaming::decrypt_stream_allow_legacy(cursor, &mut out, &dek)
-            } else {
-                secure_core::streaming::decrypt_stream(cursor, &mut out, &dek)
-            }
-            .unwrap_err();
-            assert!(
-                matches!(err, SecureCoreError::InvalidFormat(_)),
-                "bit {bit:#06x}, allow_legacy={allow_legacy}: got {err:?}"
-            );
-            assert!(out.is_empty(), "no plaintext before rejection");
-        }
+        let mut out = Vec::new();
+        let err =
+            secure_core::streaming::decrypt_stream(std::io::Cursor::new(&tampered), &mut out, &dek)
+                .unwrap_err();
+        assert!(
+            matches!(err, SecureCoreError::InvalidFormat(_)),
+            "bit {bit:#06x}: got {err:?}"
+        );
+        assert!(out.is_empty(), "no plaintext before rejection");
     }
 }
 

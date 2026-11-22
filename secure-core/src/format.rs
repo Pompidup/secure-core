@@ -10,8 +10,8 @@ pub const FORMAT_VERSION_V1: u16 = 1;
 const HEADER_SIZE_V1: u32 = 25;
 
 /// V1.1 streaming flag: the last chunk's AAD is marked to prove the stream
-/// ended where the writer intended. Blobs without this flag use the legacy
-/// per-chunk-only AAD and remain decryptable for backward compatibility.
+/// ended where the writer intended. Every stream must carry it: streams
+/// without it (legacy V1.0, secure-core < 0.3.0) are rejected since 1.0.0.
 pub const FLAG_STREAM_FINAL_CHUNK: u16 = 0x0001;
 
 /// Size of an AES-256-GCM nonce in bytes.

@@ -40,8 +40,8 @@ fn test_every_c_entry_point_runs_inside_the_panic_guard() {
     let src = source("src/ffi/functions.rs");
     let fns = exported_fns(&src, "extern \"C\" fn ");
     assert!(
-        fns.len() >= 10,
-        "expected the 10 exported C functions, found {}",
+        fns.len() >= 9,
+        "expected the 9 exported C functions, found {}",
         fns.len()
     );
     let unguarded: Vec<_> = fns
@@ -61,8 +61,8 @@ fn test_every_jni_entry_point_runs_inside_the_panic_guard() {
     let src = source("src/jni_bridge.rs");
     let fns = exported_fns(&src, "extern \"system\" fn ");
     assert!(
-        fns.len() >= 8,
-        "expected the 8 exported JNI functions, found {}",
+        fns.len() >= 7,
+        "expected the 7 exported JNI functions, found {}",
         fns.len()
     );
     let unguarded: Vec<_> = fns
