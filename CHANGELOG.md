@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Security
+
+
+## [1.0.0] - 2026-11-22
+
+First major release. Two breaking changes, grouped: the V2 streaming format and the
+removal of the legacy stream reader. The C and JNI signatures of the remaining entry
+points are unchanged.
+
+**Upgrading from 0.6.x:**
+
+1. Make sure no legacy V1.0 stream (written before 0.3.0) remains: 1.0.0 cannot read
+   them. Re-encrypt them with 0.6.x first.
+2. Stop calling `*_allow_legacy` / `nativeDecryptFileAllowLegacy` (removed).
+3. Ship 1.0.0 to every installation that exchanges files or backups: new files are V2,
+   which 0.x rejects with status `2` (`UNSUPPORTED_VERSION`). Show it as "update the
+   app", not "corrupted file".
+4. Existing V1.1 documents keep opening; re-encrypting them to V2 is optional.
+
+### Added
+
 - **`.enc` V2 streaming format** (`docs/enc-format-v2.md`, ADR-003): same 25-byte
   header with `version = 2`, and every chunk's AAD is `header || BE32(index | final
   marker)`. Any header modification, including a downgrade to V1.1, now fails
